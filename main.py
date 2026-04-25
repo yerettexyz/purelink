@@ -15,7 +15,7 @@ UNWRAP_DOMAINS = [
     "mavely", "joinmavely", "mavelyinfluencer.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
     "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io", "rstyle.me",
     "link.profitlounge.us", "howl.link", "jdoqocy.com", "sylikes.com", "bizrate.com", 
-    "pricingerrors.com", "t.co", "amazon.com", "ebay.com", "walmart.com", "trlyfree.co"
+    "pricingerrors.com", "t.co", "amazon.com", "ebay.com", "walmart.com", "trlyfree.co", "walmrt.us"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId=", "ref="]
 PEEK_KEYS = ["return", "url", "dest", "destination", "u", "q", "redirect", "redirect_url", "murl"]
