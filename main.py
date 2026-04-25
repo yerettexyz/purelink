@@ -4,11 +4,12 @@ import re
 import json
 import ipaddress
 import discord
-from prometheus_client import start_http_server, Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from prometheus_client import Counter, Gauge
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Metrics ---
 METRICS_PORT = 8000
@@ -20,10 +21,8 @@ ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = asyncio.get_event_loop().time()
 
-# Purelink - JSON Powered Edition
-# Configuration is now decoupled from the source code.
-
-load_dotenv()
+def log(msg):
+    print(f"[BOT] {msg}", flush=True)
 
 # Try to load private API plugin if exists
 API_PLUGIN = None
@@ -31,14 +30,13 @@ if os.path.exists('api_plugin.py'):
     try:
         import api_plugin
         API_PLUGIN = api_plugin
-        log("PLUGIN: Private Stats API loaded locally.")
     except Exception as e:
-        log(f"PLUGIN ERROR: Failed to load api_plugin: {e}")
+        print(f"[BOT] PLUGIN ERROR: Failed to load api_plugin: {e}")
 
 # --- Startup Checks ---
 TOKEN = os.getenv('TOKEN')
 if not TOKEN:
-    print("CRITICAL: TOKEN environment variable is not set. Check your .env file.")
+    log("CRITICAL: TOKEN environment variable is not set. Check your .env file.")
     raise SystemExit(1)
 
 def load_config():
@@ -48,7 +46,7 @@ def load_config():
         with open(config_path, 'r') as f:
             return json.load(f)
     except Exception as e:
-        print(f"CRITICAL: Failed to load data.json: {e}")
+        log(f"CRITICAL: Failed to load data.json: {e}")
         return {
             "unwrap_domains": ["amzn.to", "bit.ly"],
             "unsupported_domains": ["walmart.com", "mavelylife.com"],
@@ -102,9 +100,6 @@ def is_ssrf_safe(url: str) -> bool:
         # (Curl will handle the actual network security)
         return True
     return True
-
-def log(msg):
-    print(f"[BOT] {msg}", flush=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
