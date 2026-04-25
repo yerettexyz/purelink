@@ -302,7 +302,7 @@ class PurelinkBot(discord.Client):
             new_url = u_clean
             if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
                 new_url = await self._resolve_chain(u_clean)
-                new_url = self.unwrap_link(new_url)
+                new_url = await self.unwrap_link(new_url)
 
             if new_url != u_clean:
                 LINKS_CLEANED.inc()
