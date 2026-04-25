@@ -89,27 +89,34 @@ class PurelinkBot(discord.Client):
 
     async def unwrap_link(self, url: str) -> str:
         log(f"UNWRAP: Start {url}")
-        try:
-            final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
-        except Exception as e:
-            log(f"UNWRAP ERROR: {e}")
-            final_url = url
+        domain = urlparse(url).netloc.lower()
+        final_url = url
+
+        # Only resolve redirects for known shorteners/affiliates
+        if any(d in domain for d in CONFIG["unwrap_domains"]):
+            try:
+                final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
+            except Exception as e:
+                log(f"UNWRAP ERROR: {e}")
+                final_url = url
             
         # Purity Scrub
         p = urlparse(final_url)
+        qs = parse_qs(p.query)
+        
+        # Surgical removal of tracking keywords
+        clean_qs = {}
+        for k, v in qs.items():
+            if not any(kw.lower() in k.lower() for kw in CONFIG["tracking_keywords"]):
+                clean_qs[k] = v
+
         clean_path = p.path
         if "amazon" in p.netloc.lower():
             clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
-            
-        is_search = any(k in clean_path for k in ['/s', '/search']) or 'k=' in p.query
-        if is_search:
-            qs = parse_qs(p.query)
-            clean_qs = {k: v for k, v in qs.items() if k in CONFIG["search_keepers"] or k.startswith('p_')}
-            return urlunparse((p.scheme, p.netloc, clean_path, '', urlencode(clean_qs, doseq=True), ''))
-        else:
-            if p.scheme and p.netloc:
-                return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
-            return final_url
+        
+        # Build final URL
+        new_query = urlencode(clean_qs, doseq=True)
+        return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
 
     async def on_message(self, message):
         if message.author.bot: return
@@ -122,14 +129,11 @@ class PurelinkBot(discord.Client):
 
         for url in urls:
             u_clean = url.rstrip('.,!?;:')
-            is_track = any(k in u_clean.lower() for k in CONFIG["tracking_keywords"])
-            is_aff = any(d in u_clean.lower() for d in CONFIG["unwrap_domains"])
-
-            if is_track or is_aff:
-                new_url = await self.unwrap_link(u_clean)
-                if new_url != u_clean or is_aff:
-                    cleaned_content = cleaned_content.replace(url, new_url)
-                    any_cleaned = True
+            # Always try to unwrap/clean, but only act if it produces a different URL
+            new_url = await self.unwrap_link(u_clean)
+            if new_url != u_clean:
+                cleaned_content = cleaned_content.replace(url, new_url)
+                any_cleaned = True
 
         if any_cleaned:
             try:
