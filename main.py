@@ -14,7 +14,7 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Licensed under LGPL-3.0
 
 # Purelink Configuration
-MAVELY_DOMAINS = ["mavely.app", "joinmavely.com"]
+UNWRAP_DOMAINS = ["mavely.app", "joinmavely.com", "amzn.to", "a.co"]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid"]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
@@ -38,17 +38,16 @@ async def count_servers_members():
 async def unwrap_link(url: str) -> str:
     """Follows redirects and strips ALL tracking parameters for total purity."""
     parsed = urlparse(url)
-    is_mavely = any(domain in parsed.netloc for domain in MAVELY_DOMAINS)
-    is_tracking_base = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
+    should_unwrap = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
     
-    # If it's a known affiliate redirect or has heavy tracking, resolve it
-    if is_mavely:
+    # If it's a known affiliate redirect, resolve it
+    if should_unwrap:
         async with httpx.AsyncClient(follow_redirects=True, max_redirects=5) as httpx_client:
             try:
                 response = await httpx_client.get(url, timeout=10.0)
                 url = str(response.url)
             except Exception:
-                pass # Fallback to cleaning the original URL
+                pass # Fallback to cleaning the original URL (e.g. if link is dead)
 
     # Total Purity: Strip ALL query parameters
     p = urlparse(url)
@@ -77,14 +76,13 @@ async def on_message(message):
     for url in urls:
         # Check against pure unalix cleaning and our custom keywords
         standard_cleaned = clear_url(url).strip('&')
-        is_mavely = any(domain in url for domain in MAVELY_DOMAINS)
+        should_unwrap = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
-        if standard_cleaned != url.strip('&') or is_mavely or is_tracking_kw:
+        if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
             # Perform total purity cleaning
             new_url = await unwrap_link(url)
             if new_url != url.strip('&'):
-                # Ensure we handle the trailing & if they exist in original
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
 
