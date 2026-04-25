@@ -83,9 +83,13 @@ class PurelinkBot(discord.Client):
                     clean_qs[k] = v
             
             clean_path = p.path
-            if "amazon" in p.netloc.lower():
+            if "amazon." in p.netloc.lower():
                 clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
-                
+                # Aggressively strip down to just the ASIN to remove ALL garbage
+                asin_match = re.search(r'(?:/dp/|/gp/product/|/exec/obidos/ASIN/|/product/)([a-zA-Z0-9]{10})', clean_path)
+                if asin_match:
+                    return f"https://{p.netloc}/dp/{asin_match.group(1)}"
+            
             new_query = urlencode(clean_qs, doseq=True)
             return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
         except: return url
