@@ -79,5 +79,5 @@ To report an uncleaned link: [Open a Domain Suggestion issue](https://github.com
 
 ## License & Attribution
 Purelink is licensed under **LGPL-3.0**. 
-- Based on code by [DanielZTing](https://github.com/DanielZTing/clearurls-discord-bot).
+- Forked from [CleanURLs Discord Bot](https://github.com/DanielZTing/clearurls-discord-bot).
 - Logic adapted from [Unalix](https://github.com/AmanoTeam/Unalix).
