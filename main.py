@@ -3,17 +3,16 @@ import os
 import re
 import httpx
 import discord
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
 
 # Purelink Discord Bot
-# Production Version 1.2.0
+# Production Version 1.3.0
 # Copyright (c) 2024 Purelink Team
 
 # Core Configuration
-# Expanded to include common "middleman" redirectors like ojrq and sjv.io
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", "mavelyinfluencer.com",
     "mavely.app.link", "go.mavely.app", 
@@ -23,6 +22,7 @@ UNWRAP_DOMAINS = [
 ]
 
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
+REDIRECT_KEYS = ["return", "url", "dest", "destination", "u", "q", "redirect", "redirect_url"]
 
 # Expanded SEARCH_KEEPERS
 SEARCH_KEEPERS = [
@@ -53,7 +53,7 @@ async def update_metrics():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects through multiple hops of affiliate middlemen."""
+    """Follows redirects through multiple hops, with deep query-parameter peeking."""
     
     p_init = urlparse(url)
     final_url = urlunparse((p_init.scheme, p_init.netloc, p_init.path, '', '', ''))
@@ -69,6 +69,26 @@ async def unwrap_link(url: str) -> str:
         
         while hops < 15:
             try:
+                # STEP 1: Deep Peeking (Bypasses Cloudflare 403)
+                # Check if the next URL is already in the query parameters
+                p_current = urlparse(current_url)
+                qs = parse_qs(p_current.query)
+                found_in_query = False
+                
+                for key in REDIRECT_KEYS:
+                    if key in qs:
+                        potential_url = qs[key][0]
+                        if potential_url.startswith("http"):
+                            current_url = unquote(potential_url)
+                            final_url = current_url
+                            found_in_query = True
+                            break
+                
+                if found_in_query:
+                    hops += 1
+                    continue
+
+                # STEP 2: Standard Request
                 response = await httpx_client.get(current_url)
                 current_url = str(response.url)
                 final_url = current_url
@@ -81,9 +101,7 @@ async def unwrap_link(url: str) -> str:
                         hops += 1
                         continue
 
-                # If the current URL has tracking parameters or is in our unwrap list, keep going
-                # This prevents stopping at "ojrq.net" or "sjv.io"
-                p_current = urlparse(current_url)
+                # Stop if we hit a non-tracking domain
                 has_tracking = any(kw in current_url.lower() for kw in TRACKING_KEYWORDS)
                 is_known_shortener = any(d in p_current.netloc for d in UNWRAP_DOMAINS)
                 
@@ -107,6 +125,7 @@ async def unwrap_link(url: str) -> str:
             return clear_url(final_url).strip('&')
     else:
         if p.scheme and p.netloc:
+            # Full strip for product pages
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
 
