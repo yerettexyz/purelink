@@ -13,10 +13,12 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Copyright (c) 2024 Purelink Team
 
 # Core Configuration
+# Added new shorteners: lordofsavings, tdgdeals, pricedoffers
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
-    "amzn.to", "a.co", "bit.ly", "tinyurl.com"
+    "amzn.to", "a.co", "bit.ly", "tinyurl.com",
+    "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
@@ -56,6 +58,7 @@ async def unwrap_link(url: str) -> str:
         timeout=10.0
     ) as httpx_client:
         try:
+            # We use a HEAD request first as it's faster for redirects
             response = await httpx_client.get(url)
             if response.status_code == 200:
                 final_url = str(response.url)
@@ -63,18 +66,16 @@ async def unwrap_link(url: str) -> str:
                 # Check for standard HTML Meta Refresh
                 meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
                 if meta_match:
-                    # Resolve the meta link once
                     meta_url = meta_match.group("url")
                     meta_resp = await httpx_client.get(meta_url)
                     final_url = str(meta_resp.url)
         except:
-            # If resolution fails (403, timeout, etc.), we stick with the naked URL version
             pass
 
     # Apply Purity Logic
     p = urlparse(final_url)
-    # If it's a search page, use mild cleaning (preserves keywords k, q, etc.)
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
+        # If it's a search page, use mild cleaning (preserves keywords k, q, etc.)
         return clear_url(final_url)
     else:
         # If it's a product or general page, strip all parameters for Total Purity
@@ -103,15 +104,12 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        # Check if the URL needs cleaning (unalix difference, affiliate domain, or tracking keywords)
         standard_cleaned = clear_url(url).strip('&')
         is_affiliate = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or is_affiliate or is_tracking:
             new_url = await unwrap_link(url)
-            
-            # If the URL changed OR was an affiliate link (which we wanted to sanitize anyway)
             if new_url != url or is_affiliate:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
@@ -132,7 +130,6 @@ async def on_message(message):
             await message.delete()
             cleaned_messages.inc()
         except:
-            # Silent fallback to non-webhook if permissions missing
             await message.channel.send(f"Cleaned link:\n{cleaned_content}")
 
 if __name__ == '__main__':
