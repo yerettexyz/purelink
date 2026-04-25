@@ -1,0 +1,14 @@
+[Unit]
+Description=Purelink Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/purelink
+ExecStart=/home/ubuntu/purelink/venv/bin/python main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

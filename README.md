@@ -1,36 +1,77 @@
-<h1 align="center">ClearURLs Discord Bot</h1>
+<h1 align="center">Purelink Discord Bot</h1>
 <p align="center">
-	<img src="https://gitlab.com/KevinRoebert/ClearUrls/raw/master/img/clearurls.svg" width="64px" height="64px" margin-left="auto"/>
+	<img src="https://raw.githubusercontent.com/danielzting/clearurls-discord-bot/master/docs/demo.png" width="128px" height="128px" style="border-radius: 10px;"/>
 	<br>
-	<a href="https://danielzting.github.io/clearurls-discord-bot/start">Click here to add to your server!</a>
+	<b>Advanced link purification for clean, affiliate-free conversations.</b>
 </p>
 
-Have you ever noticed those `utm` and `fbclid` snippets in links? Those are used to track your activity and unnecessary for the site to work. This bot uses the [Unalix](https://github.com/AmanoTeam/Unalix) library that is based off of the popular [ClearURLs](https://github.com/ClearURLs/Addon) browser extension to automatically strip out such parameters from links. This keeps URLs short and readable while enhancing the privacy of your server's members.
+Purelink is a high-performance fork of the ClearURLs Discord Bot, specifically tailored to detect, clean, and unwrap tracking links. It specializes in following affiliate redirects (like Mavely) to extract pure destination URLs before they clutter your chat.
 
-![./docs/demo.png](./docs/demo.png)
+## Key Features
+- **Mavely Unwrapping**: Automatically follows redirects (up to 5 hops) for `mavely.app` and `joinmavely.com` links.
+- **Webhook Reposting**: Seamlessly deletes original "dirty" messages and reposts them as the original user (using webhooks) with pure links.
+- **Privacy Enhanced**: Strips UTM and other tracking parameters using the [Unalix](https://github.com/AmanoTeam/Unalix) library.
+- **Minimal Footprint**: Adds a subtle "Link cleaned by Purelink" footer to processed messages.
 
-Disclaimer: This public instance is hosted on my Raspberry Pi and I make no guarantees of uptime or performance.
+---
 
-## Permissions
-The bot's permissions system is designed to be granular, minimal, and gracefully degrade in the absence of those unnecessary for basic function.
+## 🛠 Self-Hosting Setup
 
-- *Read Messages* and *Send Messages* are **required** to perform the cleaning.
-- *Manage Messages* is **recommended** so the bot can suppress embeds on the original message's links to reduce visual clutter. Otherwise, it will suppress embeds on its own links.
-- *Read Message History* and *Add Reactions* are **optional** for the original poster to easily delete the bot's replies with the `:wastebasket:` emoji. Note that these two permissions are on by default for `@everyone`. If you want to disable react-to-remove, turn off these permissions for `@everyone` and give every human in your server a new role. This functionality also **requires** *Manage Messages* for deletion.
+### 1. Requirements
+- Python 3.8+
+- Discord Bot Token with **Message Content Intent** enabled.
 
-## Self-Hosting
-It is very straightforward to host this yourself. If you do, I would love to know!
+### 2. Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/psalm2517/purelink.git
+   cd purelink
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Prepare configuration:
+   - Rename `.env.example` to `.env`.
+   - Open `.env` and paste your Discord bot token in the `TOKEN=` field.
 
-1. Download the repository with `git clone https://github.com/DanielZTing/clearurls-discord-bot`
-2. Get dependencies with `pip install -r requirements.txt`
-3. Set up a new application at the [Discord Developer Portal](https://discord.com/developers/applications)
-4. Add a bot and check the `bot` scope and the above permissions in the OAuth2 tab
-5. Visit the generated link to invite the bot
-6. Copy the token from the Bot tab and paste `TOKEN=[your clipboard here]` into a file named `.env`
-7. Run with `python main.py`
+### 3. Oracle Cloud Deployment (Ubuntu)
+To run Purelink 24/7 on an Oracle Cloud VPS:
 
-## Terms of Service
-Do unto others as you would have them do unto you.
+1. **Setup Environment**:
+   ```bash
+   sudo apt update && sudo apt install -y python3-pip python3-venv
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. **Configure Service**:
+   ```bash
+   sudo cp purelink.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable purelink
+   sudo systemctl start purelink
+   ```
+3. **Monitor Logs**:
+   ```bash
+   sudo journalctl -u purelink -f
+   ```
 
-## Privacy Policy
-I collect no personal information. The only information recorded is the aggregated statistics on the [metrics dashboard](https://danielzting.github.io/clearurls-discord-bot/metrics/).
+### 4. Permissions
+The bot requires the following permissions in your Discord server:
+- **Manage Messages**: To delete original tracking link messages.
+- **Manage Webhooks**: To repost cleaned messages as the original user.
+- **Send Messages**: General function.
+- **Read Message History**: To process incoming links.
+
+### 5. Running the Bot Locally
+```bash
+python main.py
+```
+
+---
+
+## License & Attribution
+Purelink is licensed under **LGPL-3.0**. 
+- Based on the original work by [DanielZTing](https://github.com/DanielZTing/clearurls-discord-bot).
+- Portions of the logic use [Unalix](https://github.com/AmanoTeam/Unalix).
