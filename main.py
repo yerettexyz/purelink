@@ -85,8 +85,11 @@ class PurelinkBot(discord.Client):
                     clean_qs[k] = v
             
             clean_path = p.path
+            if "amazon" in p.netloc.lower():
+                clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
+                
             new_query = urlencode(clean_qs, doseq=True)
-            return urlunparse((p.scheme, p.netloc, clean_path, p.params, new_query, p.fragment))
+            return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
         except: return url
 
     async def _resolve_chain(self, url):
