@@ -16,6 +16,7 @@ Purelink is a bot designed to detect, unwrap, and clean tracking links, extracti
 - **Dynamic Configuration**: Decoupled `data.json` for managing tracking rules.
 - **Security Hardened**: IP-level SSRF protection, strict TLS verification, and 5-link processing cap per message.
 - **Multi-Hop Chain Resolution**: Resolution logic for tracing deeply nested affiliate redirect chains.
+- **Known Unsupported Domains**: List of domains that block automated resolution: [unsupported.md](https://github.com/yerettexyz/purelink/blob/main/unsupported.md)
 
 ---
 

@@ -7,6 +7,8 @@ assignees: ''
 
 ---
 
+**Note**: Please check the [Known Unsupported Domains](https://github.com/yerettexyz/purelink/blob/main/unsupported.md) list before submitting.
+
 **Is your domain request related to a specific store?**
 (e.g. Amazon, Crocs, Chewy)
 
