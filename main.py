@@ -15,7 +15,7 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Core Configuration
 # Expanded to include common "middleman" redirectors like ojrq and sjv.io
 UNWRAP_DOMAINS = [
-    "mavely.app", "joinmavely.com", "mavelylife.com", 
+    "mavely.app", "joinmavely.com", "mavelylife.com", "mavelyinfluencer.com",
     "mavely.app.link", "go.mavely.app", 
     "amzn.to", "a.co", "bit.ly", "tinyurl.com",
     "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com",
