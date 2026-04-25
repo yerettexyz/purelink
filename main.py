@@ -76,14 +76,13 @@ class PurelinkBot(discord.Client):
             await asyncio.sleep(15)
 
     def unwrap_link(self, url):
-        # STRTICT: If it's not a URL, return original
         if not url or not str(url).startswith("http"): return url
         try:
             p = urlparse(url)
             qs = parse_qs(p.query)
             clean_qs = {}
             for k, v in qs.items():
-                if not any(kw.rstrip('=') in k.lower() for kw in CONFIG["tracking_keywords"]):
+                if not any(kw.lower() in k.lower() for kw in CONFIG.get("tracking_keywords", [])):
                     clean_qs[k] = v
             
             clean_path = p.path
@@ -99,15 +98,9 @@ class PurelinkBot(discord.Client):
             import urllib.request
             req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
             return urllib.request.urlopen(req, timeout=5).geturl()
-
         try:
-            # Use urllib in a thread to bypass aiohttp's strict header size limits (e.g. x.com crashes)
-            final_url = await self.loop.run_in_executor(None, _fetch, url)
-            if not final_url or len(final_url) < 15 or not final_url.startswith("http"):
-                return url
-            return final_url
-        except:
-            return url
+            return await self.loop.run_in_executor(None, _fetch, url)
+        except: return url
 
     async def on_message(self, message):
         if message.author.bot: return
@@ -120,36 +113,32 @@ class PurelinkBot(discord.Client):
 
         cleaned_content = message.content
         any_cleaned = False
-        log(f"TRACE: Processing message: {message.content[:50]}...")
 
         for url in urls:
             u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
-            log(f"TRACE: Found URL: {url} -> {u_clean}")
             
-            if any(d in domain for d in CONFIG["unsupported_domains"]):
-                log(f"TRACE: Skipping unsupported domain: {domain}")
+            if any(d in domain for d in CONFIG.get("unsupported_domains", [])):
                 continue
 
-            new_url = u_clean
-            if any(d in domain for d in CONFIG["unwrap_domains"]) or any(kw in u_clean for kw in CONFIG["tracking_keywords"]):
-                log(f"TRACE: Resolving {u_clean}...")
-                new_url = await self._resolve_chain(u_clean)
-                new_url = self.unwrap_link(new_url)
-                log(f"TRACE: Resolved result: {new_url}")
+            # 1. Resolve redirects
+            target_url = u_clean
+            if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
+                target_url = await self._resolve_chain(u_clean)
+            
+            # 2. Strip tracking from final link
+            new_url = self.unwrap_link(target_url)
 
-            # STRICT REGEX SHIELD: Must be a valid URL
-            if new_url and re.match(r'^https?://[^\s<>"]+$', str(new_url)) and new_url != u_clean:
-                log(f"TRACE: APPLYING REPLACE: {url} -> {new_url}")
+            # 3. Apply change if cleaned or unwrapped
+            if new_url and new_url != u_clean:
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
-            else:
-                log(f"TRACE: REJECTED: {new_url} (Matches http: {bool(re.match(r'^https?://', str(new_url)))}, Different: {new_url != u_clean})")
 
         if any_cleaned:
             if not cleaned_content.strip(): return
             try:
+                # Nuke and Repost
                 await message.delete()
                 webhooks = await message.channel.webhooks()
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
@@ -160,9 +149,11 @@ class PurelinkBot(discord.Client):
                     avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
                 )
-            except:
-                try: await message.channel.send(f"**Cleaned link(s) (PID {os.getpid()}):**\n{cleaned_content}")
+            except Exception as e:
+                # Fallback if nuke/webhook fails
+                try: await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
                 except: pass
+
 
 if __name__ == '__main__':
     bot = PurelinkBot(intents=intents)
