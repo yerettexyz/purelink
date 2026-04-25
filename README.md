@@ -67,6 +67,11 @@ The bot requires the following permissions in your Discord server:
 python main.py
 ```
 
+## 🤝 Contributing
+Found a link that Purelink didn't clean? We want to know! 
+
+Please [open a Domain Suggestion issue](https://github.com/psalm2517/purelink/issues/new?template=domain_request.md) and provide an example link. We're constantly updating our filters to support more affiliate networks.
+
 ---
 
 ## License & Attribution
