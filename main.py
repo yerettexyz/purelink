@@ -2,24 +2,17 @@ import asyncio
 import os
 import re
 import json
-import ipaddress
 import discord
-import threading
+import time
 from prometheus_client import Counter, Gauge
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import time
-
 # --- Metrics ---
-METRICS_PORT = 8000
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
-LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total banned links removed')
-HOPS_TOTAL = Counter('purelink_hops_total', 'Total redirect hops performed')
-ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = time.time()
 
@@ -29,84 +22,18 @@ def log(msg):
 # Try to load private API plugin if exists
 API_PLUGIN = None
 if os.path.exists('api_plugin.py'):
-    try:
-        import api_plugin
-        API_PLUGIN = api_plugin
-    except Exception as e:
-        print(f"[BOT] PLUGIN ERROR: Failed to load api_plugin: {e}")
+    import api_plugin
+    API_PLUGIN = api_plugin
 
-# --- Startup Checks ---
 TOKEN = os.getenv('TOKEN')
-if not TOKEN:
-    log("CRITICAL: TOKEN environment variable is not set. Check your .env file.")
-    raise SystemExit(1)
-
-def load_config():
-    """Load tracking config from data.json using an absolute path."""
-    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.json')
-    try:
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        log(f"CRITICAL: Failed to load data.json: {e}")
-        return {
-            "unwrap_domains": ["amzn.to", "bit.ly"],
-            "unsupported_domains": ["walmart.com", "mavelylife.com"],
-            "banned_domains": ["linktr.ee"],
-            "tracking_keywords": ["utm_", "ref="],
-            "peek_keys": ["url"],
-            "search_keepers": ["k", "q"]
-        }
-
-CONFIG = load_config()
-
-# --- SSRF Protection ---
-# Private, loopback, link-local, and reserved IP ranges to block
-_BLOCKED_NETWORKS = [
-    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
-    ipaddress.ip_network("10.0.0.0/8"),        # Private
-    ipaddress.ip_network("172.16.0.0/12"),     # Private
-    ipaddress.ip_network("192.168.0.0/16"),    # Private
-    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / Cloud metadata
-    ipaddress.ip_network("::1/128"),           # IPv6 loopback
-    ipaddress.ip_network("fc00::/7"),          # IPv6 private
-    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
-]
-
-def is_ssrf_safe(url: str) -> bool:
-    """Return False if URL resolves to a private/reserved address."""
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname
-        if not host:
-            # If we can't parse a hostname, but it's a valid-looking URL string, 
-            # we'll allow it to pass to curl which has its own DNS protections.
-            return True
-            
-        # Reject obvious internal hostnames
-        if host.lower() in ("localhost", "metadata.google.internal", "169.254.169.254"):
-            return False
-            
-        # Try to parse as IP
-        try:
-            addr = ipaddress.ip_address(host.strip("[]"))
-            for net in _BLOCKED_NETWORKS:
-                if addr in net:
-                    return False
-        except ValueError:
-            # It's a hostname (e.g. google.com), assume safe for now
-            pass
-            
-    except Exception:
-        # If urlparse explodes on weird characters, fail-safe to True 
-        # (Curl will handle the actual network security)
-        return True
-    return True
+CONFIG = {
+    "unwrap_domains": ["bit.ly", "t.co", "tinyurl.com", "amzn.to", "a.co"],
+    "tracking_keywords": ["aff_", "utm_", "ref_", "click_id", "tag="],
+    "banned_domains": ["discord.gg", "discord.com/invite"]
+}
 
 intents = discord.Intents.default()
 intents.message_content = True
-
-MAX_URLS_PER_MESSAGE = 5
 
 class PurelinkBot(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -115,232 +42,101 @@ class PurelinkBot(discord.Client):
 
     async def setup_hook(self):
         log(f"SUCCESS: Logged in as {self.user}")
-        
-        # Start Private Monitoring Bridge (Prometheus + JSON API)
         if API_PLUGIN:
-            try:
-                # Pass metrics as a dictionary to avoid circular imports
-                metrics_data = {
-                    'LINKS_CLEANED': LINKS_CLEANED,
-                    'LINKS_DETECTED': LINKS_DETECTED,
-                    'LINKS_NUKED': LINKS_NUKED,
-                    'HOPS_TOTAL': HOPS_TOTAL,
-                    'ERRORS_TOTAL': ERRORS_TOTAL,
-                    'START_TIME': START_TIME,
-                    'PORT_PROM': METRICS_PORT
-                }
-                threading.Thread(target=API_PLUGIN.initialize_monitoring, args=(metrics_data,), daemon=True).start()
-                log("PLUGIN: Private Monitoring Bridge initialized.")
-            except Exception as e:
-                log(f"PLUGIN ERROR: Failed to start monitoring: {e}")
-
-        # Start uptime tracker
+            metrics = {
+                'LINKS_CLEANED': LINKS_CLEANED,
+                'LINKS_DETECTED': LINKS_DETECTED,
+                'LINKS_NUKED': Counter('dummy_nuke', 'nuke'),
+                'HOPS_TOTAL': Counter('dummy_hops', 'hops'),
+                'ERRORS_TOTAL': Counter('dummy_err', 'err'),
+                'START_TIME': START_TIME,
+                'PORT_PROM': 8000
+            }
+            self.loop.run_in_executor(None, API_PLUGIN.initialize_monitoring, metrics)
+            log("PLUGIN: Private Monitoring Bridge initialized.")
         self.loop.create_task(self.update_uptime())
 
     async def on_ready(self):
-        activity = discord.Activity(type=discord.ActivityType.watching, name="for tracking links")
-        await self.change_presence(activity=activity)
-        log("STATUS: Presence updated and bot is ready.")
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="for tracking links"))
+        log("STATUS: Bot is ready.")
 
     async def update_uptime(self):
         while not self.is_closed():
             BOT_UPTIME.set(time.time() - START_TIME)
-            await asyncio.sleep(60)
+            await asyncio.sleep(15)
 
-    async def _resolve_chain(self, url: str) -> str:
-        current_url = url
-        for hop in range(1, 10):
-            # SSRF check before any outbound request
-            if not is_ssrf_safe(current_url):
-                log(f"SSRF BLOCKED: {current_url}")
-                return url
-
-            # 1. Peek
-            p = urlparse(current_url)
-            qs = parse_qs(p.query)
-            peeked = False
-            for key in CONFIG["peek_keys"]:
-                if key in qs:
-                    potential = unquote(qs[key][0])
-                    if potential.startswith("http"):
-                        current_url = potential
-                        log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
-                        peeked = True
-                        break # Exit peek_keys loop
-            if peeked:
-                continue # Restart hop loop with new current_url
-
-            # 2. Curl Resolve — TLS verification ON, redirs capped
-            cmd = [
-                "curl", "-sL", "-o", "/dev/null",
-                "--max-time", "10",
-                "--max-redirs", "10",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "-e", "https://www.google.com/",
-                "-w", "%{url_effective}\n%{http_code}",
-                current_url
-            ]
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-            stdout, _ = await proc.communicate()
-            if not stdout: break
-
-            lines = stdout.decode('utf-8', errors='ignore').splitlines()
-            if len(lines) < 2: break
-
-            final_eff_url = lines[-1].strip()
-            status_code = lines[-2].strip()
-            content = "\n".join(lines[:-2])
-
-            log(f"UNWRAP: Hop {hop} (Status {status_code}) -> {final_eff_url}")
-            HOPS_TOTAL.inc()
-
-            # 3. Scrape Redirects
-            meta = re.search(r'url=(?P<url>https?://[^\"\']+)', content, re.I)
-            js = re.search(r'location(?:\.href)?\s*=\s*[\'\"](?P<url>https?://[^\'\"]+)', content, re.I)
-
-            target = None
-            if meta: target = meta.group("url")
-            elif js: target = js.group("url")
-
-            if target:
-                current_url = target
-                log(f"UNWRAP: Hop {hop} (Scraped) -> {current_url}")
-                continue
-
-            if final_eff_url == current_url: break
-            current_url = final_eff_url
-            if not any(d in current_url for d in CONFIG["unwrap_domains"]) and not any(kw in current_url for kw in CONFIG["tracking_keywords"]):
-                break
-        return current_url
-
-    async def unwrap_link(self, url: str) -> str:
-        log(f"UNWRAP: Start {url}")
-        domain = urlparse(url).netloc.lower()
-        final_url = url
-
-        # Only resolve redirects for known shorteners/affiliates that aren't on the blocked list
-        is_unsupported = any(d in domain for d in CONFIG.get("unsupported_domains", []))
-        if any(d in domain for d in CONFIG["unwrap_domains"]) and not is_unsupported:
-            try:
-                final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
-            except Exception as e:
-                ERRORS_TOTAL.inc()
-                log(f"UNWRAP ERROR: {e}")
-                final_url = url
-
-        # Purity Scrub — surgical removal of tracking keywords only
-        p = urlparse(final_url)
+    def unwrap_link(self, url):
+        p = urlparse(url)
         qs = parse_qs(p.query)
-
         clean_qs = {}
         for k, v in qs.items():
-            k_lower = k.lower()
-            is_tracking = False
-            for kw in CONFIG["tracking_keywords"]:
-                kw_clean = kw.lower().rstrip('=')
-                if kw.endswith('='):
-                    if k_lower == kw_clean:
-                        is_tracking = True
-                        break
-                elif kw.endswith('_'):
-                    if k_lower.startswith(kw_clean):
-                        is_tracking = True
-                        break
-                else:
-                    if kw_clean in k_lower:
-                        is_tracking = True
-                        break
-            
-            if not is_tracking:
+            if not any(kw in k.lower() for kw in CONFIG["tracking_keywords"]):
                 clean_qs[k] = v
-
+        
         clean_path = p.path
         if "amazon" in p.netloc.lower():
             clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
-
+            
         new_query = urlencode(clean_qs, doseq=True)
         return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
+
+    async def _resolve_chain(self, url):
+        current_url = url
+        for _ in range(5):
+            cmd = ["curl", "-sI", "-L", "-m", "5", "-w", "%{url_effective}", current_url]
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            stdout, _ = await proc.communicate()
+            if not stdout: break
+            new_url = stdout.decode().strip().split('\n')[-1]
+            if new_url == current_url: break
+            current_url = new_url
+        return current_url
 
     async def on_message(self, message):
         if message.author.bot: return
         
-        # Anti-Duplicate Multi-Brain Protection
-        now = time.time()
-        if message.id in self.processed_cache:
-            return
-        self.processed_cache[message.id] = now
-        
-        # Periodic Cache Cleanup (Every 100 messages)
-        if len(self.processed_cache) > 100:
-            self.processed_cache = {k: v for k, v in self.processed_cache.items() if now - v < 30}
+        # Anti-Triple Response Protection
+        if message.id in self.processed_cache: return
+        self.processed_cache[message.id] = time.time()
 
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
-
-        # Cap URLs per message to prevent DoS
-        urls = urls[:MAX_URLS_PER_MESSAGE]
         LINKS_DETECTED.inc(len(urls))
 
-        log(f"EVENT: Processing {len(urls)} links from {message.author}")
         cleaned_content = message.content
         any_cleaned = False
 
         for url in urls:
-            # Better stripping for common chat punctuation/markdown
             u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
-
-            # 1. Check for banned domains (Nuke entirely)
-            if any(d in domain for d in CONFIG.get("banned_domains", [])):
-                cleaned_content = cleaned_content.replace(url, "", 1).strip()
-                any_cleaned = True
-                LINKS_NUKED.inc()
-                LINKS_CLEANED.inc()
-                log(f"NUKE: Removed banned link {url}")
-                continue
-
-            # 2. Unwrap and Clean
+            
+            # Simple resolve and clean
             new_url = u_clean
-            if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
+            if any(d in domain for d in CONFIG["unwrap_domains"]) or any(kw in u_clean for kw in CONFIG["tracking_keywords"]):
                 new_url = await self._resolve_chain(u_clean)
-                new_url = await self.unwrap_link(new_url)
+                new_url = self.unwrap_link(new_url)
 
             if new_url != u_clean:
-                LINKS_CLEANED.inc()
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
+                LINKS_CLEANED.inc()
 
         if any_cleaned:
-            # Prevent Discord 400 ERROR on empty content (if all links nuked)
-            if not cleaned_content.strip():
-                cleaned_content = "-# *Banned link(s) removed.*"
-
+            if not cleaned_content.strip(): return
             try:
-                # 1. First, try to nuke the original message
-                try:
-                    await message.delete()
-                except discord.NotFound:
-                    return # Already handled by another instance/task
-
+                await message.delete()
                 webhooks = await message.channel.webhooks()
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
-                if not webhook:
-                    webhook = await message.channel.create_webhook(name="Purelink Cleaner")
-
+                if not webhook: webhook = await message.channel.create_webhook(name="Purelink Cleaner")
                 await webhook.send(
                     content=cleaned_content + "\n\n-# *Link cleaned by Purelink*",
                     username=message.author.display_name,
                     avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
                 )
-            except Exception as e:
-                log(f"EVENT ERROR: Repost failed: {e}")
-                # Fallback: only if we haven't already deleted the message
-                try:
-                    if cleaned_content.strip():
-                        await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
-                except: pass
+            except:
+                await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
 
 if __name__ == '__main__':
-    bot = PurelinkBot(intents=intents)
+    bot = PurelinkBot()
     bot.run(TOKEN)
