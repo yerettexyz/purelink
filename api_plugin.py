@@ -1,4 +1,5 @@
 import threading
+import asyncio
 import discord
 import os
 import json
@@ -13,6 +14,45 @@ def patched_dispatch(self, event_name, *args, **kwargs):
     if event_name == 'message':
         try:
             message = args[0]
+            if message.author.bot: return original_dispatch(self, event_name, *args, **kwargs)
+
+            # --- Plugin Commands ---
+            isAdmin = message.author.guild_permissions.administrator
+            parts = message.content.split()
+            
+            if message.content.startswith('/help'):
+                help_text = (
+                    "💡 **Purelink Plugin Help**\n"
+                    "`/ignore channel <id>` - Stop bot from cleaning links in a channel\n"
+                    "`/ignore user <id>` - Stop bot from cleaning links for a user\n"
+                    "`/help` - Show this menu\n"
+                    "-# *Plugin-based commands (Administrators only)*"
+                )
+                asyncio.run_coroutine_threadsafe(message.channel.send(help_text), self.loop)
+                return
+
+            if message.content.startswith('/ignore') and isAdmin:
+                if len(parts) >= 3:
+                    cmd_type = parts[1].lower() # 'channel' or 'user'
+                    target_id = int(parts[2])
+                    
+                    with open(IGNORE_FILE, 'r') as f: data = json.load(f)
+                    
+                    if cmd_type == 'channel':
+                        data.setdefault('ignored_channels', []).append(target_id)
+                        data['ignored_channels'] = list(set(data['ignored_channels']))
+                    elif cmd_type == 'user':
+                        data.setdefault('ignored_users', []).append(target_id)
+                        data['ignored_users'] = list(set(data['ignored_users']))
+                    
+                    with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
+                    asyncio.run_coroutine_threadsafe(message.channel.send(f"✅ Added {cmd_type} `{target_id}` to ignore list."), self.loop)
+                    return
+                else:
+                    asyncio.run_coroutine_threadsafe(message.channel.send("❌ Usage: `/ignore channel <id>` or `/ignore user <id>`"), self.loop)
+                    return
+
+            # --- Ignore Logic ---
             if os.path.exists(IGNORE_FILE):
                 with open(IGNORE_FILE, 'r') as f:
                     data = json.load(f)
