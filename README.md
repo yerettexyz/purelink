@@ -1,20 +1,21 @@
 <h1 align="center">Purelink Discord Bot</h1>
 <p align="center">
-	<b>Advanced link purification for clean, affiliate-free conversations.</b>
+	<b>Link purification for Discord.</b>
 </p>
 
-Purelink is a high-performance fork of the ClearURLs Discord Bot, specifically tailored to detect, clean, and unwrap tracking links. It specializes in following affiliate redirects (like Mavely) to extract pure destination URLs before they clutter your chat.
+Purelink is a bot designed to detect, unwrap, and clean tracking links, extracting destination URLs from affiliate redirect chains.
 
 ## 🚀 Quick Start
-For the fastest experience, use the official hosted instance. It requires zero setup—just plug and play.
 
 **[Add Purelink to Discord](https://yerette.xyz/purelink)**
 
 ## Key Features
-- **3,500+ Tracking Domains**: Integrated a massive blocklist to unwrap and sanitize thousands of ad, affiliate, and tracking domains.
-- **Mavely & Amazon Sanitization**: Specialized logic to clean Mavely redirects and surgically strip Amazon tracking.
-- **Webhook Reposting**: Seamlessly deletes original "dirty" messages and reposts them as the original user (using webhooks) with pure links.
-- **Dynamic Configuration**: Powered by a decoupled `data.json` for easy updates to tracking rules without code changes.
+- **3,500+ Tracking Domains**: Integrated blocklist for unwrapping and sanitizing ad, affiliate, and tracking domains.
+- **Mavely & Amazon Sanitization**: Logic for cleaning Mavely redirects and stripping Amazon tracking parameters.
+- **Webhook Reposting**: Deletes messages containing tracking links and reposts them using the original user's name and avatar with cleaned URLs.
+- **Dynamic Configuration**: Decoupled `data.json` for managing tracking rules.
+- **Security Hardened**: IP-level SSRF protection, strict TLS verification, and 5-link processing cap per message.
+- **Multi-Hop Chain Resolution**: Resolution logic for tracing deeply nested affiliate redirect chains.
 
 ---
 
@@ -36,11 +37,9 @@ For the fastest experience, use the official hosted instance. It requires zero s
    ```
 3. Prepare configuration:
    - Rename `.env.example` to `.env`.
-   - Open `.env` and paste your Discord bot token in the `TOKEN=` field.
+   - Add your Discord bot token to the `TOKEN=` field in `.env`.
 
 ### 3. Oracle Cloud Deployment (Ubuntu)
-To run Purelink 24/7 on an Oracle Cloud VPS:
-
 1. **Setup Environment**:
    ```bash
    sudo apt update && sudo apt install -y python3-pip python3-venv
@@ -61,25 +60,23 @@ To run Purelink 24/7 on an Oracle Cloud VPS:
    ```
 
 ### 4. Permissions
-The bot requires the following permissions in your Discord server:
+Required bot permissions:
 - **Manage Messages**: To delete original tracking link messages.
-- **Manage Webhooks**: To repost cleaned messages as the original user.
+- **Manage Webhooks**: To repost cleaned messages.
 - **Send Messages**: General function.
 - **Read Message History**: To process incoming links.
 
-### 5. Running the Bot Locally
+### 5. Execution
 ```bash
 python main.py
 ```
 
 ## 🤝 Contributing
-Found a link that Purelink didn't clean? We want to know! 
-
-Please [open a Domain Suggestion issue](https://github.com/psalm2517/purelink/issues/new?template=domain_request.md) and provide an example link. We're constantly updating our filters to support more affiliate networks.
+To report an uncleaned link: [Open a Domain Suggestion issue](https://github.com/psalm2517/purelink/issues/new?template=domain_request.md).
 
 ---
 
 ## License & Attribution
 Purelink is licensed under **LGPL-3.0**. 
-- Based on the original work by [DanielZTing](https://github.com/DanielZTing/clearurls-discord-bot).
-- Portions of the logic use [Unalix](https://github.com/AmanoTeam/Unalix).
+- Based on code by [DanielZTing](https://github.com/DanielZTing/clearurls-discord-bot).
+- Logic adapted from [Unalix](https://github.com/AmanoTeam/Unalix).
