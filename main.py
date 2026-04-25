@@ -23,10 +23,10 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "af
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
-# High-fidelity Browser Headers
+# High-fidelity Mobile Headers (often bypasses stricter bot filters)
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
@@ -36,12 +36,13 @@ intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects and cleans with deep inspection of search vs product pages."""
+    """Follows redirects with deep stealth and error handling for 403s."""
     
     final_url = url
+    # Use a session-like client to maintain cookies
     async with httpx.AsyncClient(
         follow_redirects=True, 
-        max_redirects=10, 
+        max_redirects=15, 
         headers=HEADERS, 
         cookies=httpx.Cookies(),
         http2=True,
@@ -49,53 +50,66 @@ async def unwrap_link(url: str) -> str:
     ) as httpx_client:
         hops = 0
         current_url = url
-        while hops < 10:
-            parsed = urlparse(current_url)
+        last_url = url
+        
+        while hops < 15:
             try:
-                response = await httpx_client.get(current_url)
+                # Add Referer for every hop to look like a real user chain
+                custom_headers = HEADERS.copy()
+                if hops > 0:
+                    custom_headers["Referer"] = last_url
+                
+                response = await httpx_client.get(current_url, headers=custom_headers)
+                
+                # Check for 403 - try to scrape the target from the body if possible
+                if response.status_code == 403:
+                    print(f"[DEBUG] Mavely Blocked (403) at {current_url}")
+                    # Some sites include the target as a JS variable even on blocked/wait pages
+                    js_match = re.search(r'window\.location\.replace\(["\'](?P<url>https?://[^"\']+)["\']\)', response.text)
+                    if js_match:
+                        current_url = js_match.group("url")
+                        hops += 1
+                        continue
+                    break
+
+                last_url = current_url
                 current_url = str(response.url)
                 
                 # Check for Meta Refresh in body
                 meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
-                if meta_match and hops < 5:
+                if meta_match:
                     current_url = meta_match.group("url")
                     hops += 1
                     continue 
-                else:
-                    # If we're off known shorteners and didn't redirect, we're likely done
-                    is_shortener = any(d in parsed.netloc for d in UNWRAP_DOMAINS)
-                    if not is_shortener:
-                        break
+
+                # If no more redirects and no more meta-refreshes, we're likely at the store
+                parsed_final = urlparse(current_url)
+                is_still_shortener = any(d in parsed_final.netloc for d in UNWRAP_DOMAINS)
+                if not is_still_shortener:
+                    break
+                    
             except Exception as e:
-                print(f"[DEBUG] Resolution failed for {current_url}: {e}")
+                print(f"[DEBUG] Resolution error at hop {hops}: {e}")
                 break
             hops += 1
         
         final_url = current_url
 
-    # Smart Purity: Determine if it's a search page or a product page
+    # Smart Purity Logic
     p = urlparse(final_url)
-    is_search = p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query
-    
-    if is_search:
-        # Precision cleaning for search pages: Strip trackers but KEEP valid search keywords
-        qs = parse_qs(p.query)
-        clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
-        
-        # If we have valid search terms, reconstruct the search URL
-        if clean_qs:
-            new_query = urlencode(clean_qs, doseq=True)
-            return urlunparse((p.scheme, p.netloc, p.path, '', new_query, ''))
-        else:
-            # If it's a search with no terms, let unalix try a general clean
-            return clear_url(final_url)
+    if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
+        return clear_url(final_url)
     else:
-        # Total Purity for Product Pages: Strip ALL params
         return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
 @client.event
+async def on_ready():
+    await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
+    print(f'Purelink is logged in as {client.user}')
+
+@client.event
 async def on_message(message):
-    print(f"[DEBUG] Heartbeat: Received message from {message.author}")
+    print(f"[DEBUG] Heartbeat: Message from {message.author}")
     if message.author.bot:
         return
 
@@ -112,21 +126,16 @@ async def on_message(message):
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
-            print(f"[DEBUG] Cleaning URL: {url}")
+            print(f"[DEBUG] Processing Link: {url}")
             new_url = await unwrap_link(url)
             
-            # Repost if the link changed OR it was an affiliate domain we want to sanitize
             if new_url != url or should_unwrap:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
-                print(f"[DEBUG] -> Success: {new_url}")
+                print(f"[DEBUG] -> Cleaned to: {new_url}")
 
     if any_cleaned:
         permissions = message.channel.permissions_for(message.guild.me)
-        if not (permissions.manage_messages and permissions.manage_webhooks):
-            await message.reply(f"Link cleaned by Purelink:\n{cleaned_content}", mention_author=False)
-            return
-
         try:
             webhooks = await message.channel.webhooks()
             webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
@@ -141,6 +150,8 @@ async def on_message(message):
             )
             await message.delete()
         except Exception as e:
+            # Fallback to simple reply if webhook fails
+            await message.reply(f"Link cleaned by Purelink:\n{cleaned_content}", mention_author=False)
             print(f"[DEBUG] Webhook error: {e}")
 
 if __name__ == '__main__':
