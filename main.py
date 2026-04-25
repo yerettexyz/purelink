@@ -5,8 +5,8 @@ import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink Discord Bot - Twitter/t.co Hardened Build
-# Restoration of Meta-Refresh parsing to handle Twitter jump pages.
+# Purelink Discord Bot - Amazon Path-Hardened Build
+# This version surgically removes tracking segments from the URL PATH (like /ref=)
 
 load_dotenv()
 
@@ -25,8 +25,8 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
+    """A multi-hop resolver that surgically removes trackings from paths and query strings."""
     current_url = url
-    print(f"[DEBUG] Unrolling: {url}")
     
     for hop in range(1, 10):
         # 1. PEAKING (Bypass Blocks)
@@ -42,9 +42,8 @@ async def unwrap_link(url: str) -> str:
                     break
         if found_peek: continue
 
-        # 2. CURL RESOLUTION (With Content Peeking for Meta-Refresh)
+        # 2. CURL RESOLUTION
         try:
-            # We fetch the HEADERS and the BODY to catch Meta Refresh and JS redirects
             cmd = [
                 "curl", "-Ls", "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                 "-w", "\n%{url_effective}",
@@ -55,22 +54,18 @@ async def unwrap_link(url: str) -> str:
             if not stdout: break
             
             lines = stdout.decode().splitlines()
-            new_url = lines[-1].strip() # The effective URL from -w
-            content = "\n".join(lines[:-1]) # The actual page content
+            new_url = lines[-1].strip() 
+            content = "\n".join(lines[:-1])
             
-            # Check for Meta Refresh in the content (Crucial for t.co)
+            # Check for Meta Refresh
             meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
             if meta:
                 current_url = meta.group("url")
-                print(f"[DEBUG] Hop {hop} (Meta): Found jump to {current_url}")
                 continue
             
             if new_url == current_url:
                 break
-                
             current_url = new_url
-            print(f"[DEBUG] Hop {hop} (Curl): Moved to {current_url}")
-            
             if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
                 break
         except:
@@ -78,13 +73,25 @@ async def unwrap_link(url: str) -> str:
             
     final_url = current_url
     p = urlparse(final_url)
-    if any(k in p.path for k in ['/s', '/search']) or 'k=' in p.query:
+    
+    # Surgical Path Cleaning (Handles Amazon /ref= in path)
+    clean_path = p.path
+    if "amazon" in p.netloc:
+        # If path contains /ref= or /ref/ we truncate it
+        ref_match = re.search(r'/(ref[=/].*)', clean_path)
+        if ref_match:
+            clean_path = clean_path.split(ref_match.group(1))[0]
+    
+    # Purity Logic
+    is_search = any(k in clean_path for k in ['/s', '/search']) or 'k=' in p.query
+    if is_search:
         qs = parse_qs(p.query)
         clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
-        return urlunparse((p.scheme, p.netloc, p.path, '', urlencode(clean_qs, doseq=True), ''))
+        return urlunparse((p.scheme, p.netloc, clean_path, '', urlencode(clean_qs, doseq=True), ''))
     else:
         if p.scheme and p.netloc:
-            return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+            # Full scrub: Path only, no query or ref segments
+            return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
         return final_url
 
 @client.event
