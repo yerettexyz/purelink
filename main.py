@@ -9,19 +9,22 @@ from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
 
 # Purelink Discord Bot
-# Production Version 1.1.0
+# Production Version 1.2.0
 # Copyright (c) 2024 Purelink Team
 
 # Core Configuration
+# Expanded to include common "middleman" redirectors like ojrq and sjv.io
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
     "amzn.to", "a.co", "bit.ly", "tinyurl.com",
-    "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com"
+    "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com",
+    "ojrq.net", "sjv.io", "impactradius", "rstyle.me", "gotrackier.com"
 ]
+
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
 
-# Expanded SEARCH_KEEPERS to preserve price filters and refining nodes
+# Expanded SEARCH_KEEPERS
 SEARCH_KEEPERS = [
     'k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36', 
     'rnid', 'crid', 'low-price', 'high-price', 'sprefix'
@@ -50,38 +53,47 @@ async def update_metrics():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects with a hard persistence for Amazon and affiliate shortlinks."""
+    """Follows redirects through multiple hops of affiliate middlemen."""
     
     p_init = urlparse(url)
-    # Start with a 'naked' version of the input URL (removes query junk immediately)
     final_url = urlunparse((p_init.scheme, p_init.netloc, p_init.path, '', '', ''))
 
-    # Harder timeout and follow_redirects for shortlinks
     async with httpx.AsyncClient(
         follow_redirects=True, 
         max_redirects=15, 
         headers=HEADERS, 
         timeout=20.0
     ) as httpx_client:
-        try:
-            response = await httpx_client.get(url)
-            # If the response URL is different, we successfully unrolled it
-            if str(response.url) != url:
-                final_url = str(response.url)
-            
-            # Additional check for HTML Meta Refresh (common in Mavely)
-            if response.status_code == 200:
-                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
-                if meta_match:
-                    meta_url = meta_match.group("url")
-                    meta_resp = await httpx_client.get(meta_url)
-                    if str(meta_resp.url) != meta_url:
-                        final_url = str(meta_resp.url)
-        except Exception as e:
-            print(f"[ERROR] Unwrap failed for {url}: {e}")
-            pass
+        hops = 0
+        current_url = url
+        
+        while hops < 15:
+            try:
+                response = await httpx_client.get(current_url)
+                current_url = str(response.url)
+                final_url = current_url
+                
+                # Check for Meta Refresh
+                if response.status_code == 200:
+                    meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
+                    if meta_match:
+                        current_url = meta_match.group("url")
+                        hops += 1
+                        continue
 
-    # Apply Purity Logic (Search vs Product)
+                # If the current URL has tracking parameters or is in our unwrap list, keep going
+                # This prevents stopping at "ojrq.net" or "sjv.io"
+                p_current = urlparse(current_url)
+                has_tracking = any(kw in current_url.lower() for kw in TRACKING_KEYWORDS)
+                is_known_shortener = any(d in p_current.netloc for d in UNWRAP_DOMAINS)
+                
+                if not (has_tracking or is_known_shortener):
+                    break
+            except:
+                break
+            hops += 1
+        
+    # Apply Final Purity Logic
     p = urlparse(final_url)
     is_search = p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query
     
@@ -95,7 +107,6 @@ async def unwrap_link(url: str) -> str:
             return clear_url(final_url).strip('&')
     else:
         if p.scheme and p.netloc:
-            # Complete strip for everything else (Product pages)
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
 
@@ -120,14 +131,12 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        # Standard cleaning detection
         standard_cleaned = clear_url(url).strip('&')
         is_affiliate = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or is_affiliate or is_tracking:
             new_url = await unwrap_link(url)
-            # Only trigger if the result is actually different from the original dirty link
             if new_url != url:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
