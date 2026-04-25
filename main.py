@@ -9,11 +9,10 @@ from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
 
 # Purelink Discord Bot
-# Production Version
+# Production Version 1.1.0
 # Copyright (c) 2024 Purelink Team
 
 # Core Configuration
-# Added lordofsavings, tdgdeals, pricedoffers
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
@@ -31,6 +30,7 @@ URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
 # Intents
@@ -50,49 +50,52 @@ async def update_metrics():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects where possible; falls back to 'naked' links for guarded domains."""
+    """Follows redirects with a hard persistence for Amazon and affiliate shortlinks."""
     
     p_init = urlparse(url)
-    # Default 'clean' link is just the original link without query parameters or fragments
+    # Start with a 'naked' version of the input URL (removes query junk immediately)
     final_url = urlunparse((p_init.scheme, p_init.netloc, p_init.path, '', '', ''))
 
+    # Harder timeout and follow_redirects for shortlinks
     async with httpx.AsyncClient(
         follow_redirects=True, 
-        max_redirects=10, 
+        max_redirects=15, 
         headers=HEADERS, 
-        timeout=10.0
+        timeout=20.0
     ) as httpx_client:
         try:
             response = await httpx_client.get(url)
-            if response.status_code == 200:
+            # If the response URL is different, we successfully unrolled it
+            if str(response.url) != url:
                 final_url = str(response.url)
-                
-                # Check for standard HTML Meta Refresh
+            
+            # Additional check for HTML Meta Refresh (common in Mavely)
+            if response.status_code == 200:
                 meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
                 if meta_match:
                     meta_url = meta_match.group("url")
                     meta_resp = await httpx_client.get(meta_url)
-                    final_url = str(meta_resp.url)
-        except:
+                    if str(meta_resp.url) != meta_url:
+                        final_url = str(meta_resp.url)
+        except Exception as e:
+            print(f"[ERROR] Unwrap failed for {url}: {e}")
             pass
 
-    # Apply Purity Logic
+    # Apply Purity Logic (Search vs Product)
     p = urlparse(final_url)
     is_search = p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query
     
     if is_search:
-        # Precision cleaning for search pages: Strip trackers but KEEP valid search keywords and filters
         qs = parse_qs(p.query)
         clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
-        
         if clean_qs:
             new_query = urlencode(clean_qs, doseq=True)
             return urlunparse((p.scheme, p.netloc, p.path, '', new_query, ''))
         else:
             return clear_url(final_url).strip('&')
     else:
-        # Total Purity for Product Pages: Strip ALL params
         if p.scheme and p.netloc:
+            # Complete strip for everything else (Product pages)
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
 
@@ -117,13 +120,15 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
+        # Standard cleaning detection
         standard_cleaned = clear_url(url).strip('&')
         is_affiliate = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or is_affiliate or is_tracking:
             new_url = await unwrap_link(url)
-            if new_url != url or is_affiliate:
+            # Only trigger if the result is actually different from the original dirty link
+            if new_url != url:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
 
