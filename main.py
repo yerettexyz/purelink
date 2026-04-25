@@ -173,9 +173,10 @@ class PurelinkBot(discord.Client):
             # 2. Curl Resolve — TLS verification ON, redirs capped
             cmd = [
                 "curl", "-sL", "-o", "/dev/null",
-                "--max-time", "8",
+                "--max-time", "10",
                 "--max-redirs", "10",
-                "-A", "Mozilla/5.0",
+                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "-e", "https://www.google.com/",
                 "-w", "%{url_effective}\n%{http_code}",
                 current_url
             ]
@@ -315,10 +316,15 @@ class PurelinkBot(discord.Client):
                 cleaned_content = "-# *Banned link(s) removed.*"
 
             try:
+                # 1. First, try to nuke the original message
+                try:
+                    await message.delete()
+                except discord.NotFound:
+                    return # Already handled by another instance/task
+
                 webhooks = await message.channel.webhooks()
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
                 if not webhook:
-                    # Discord limit is 15 webhooks per channel
                     webhook = await message.channel.create_webhook(name="Purelink Cleaner")
 
                 await webhook.send(
@@ -327,12 +333,13 @@ class PurelinkBot(discord.Client):
                     avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
                 )
-                await message.delete()
             except Exception as e:
-                log(f"EVENT ERROR: Repost failed (Check permissions/webhook limits): {e}")
-                # Fallback: Send a message if webhook/delete fails
-                if cleaned_content.strip():
-                    await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
+                log(f"EVENT ERROR: Repost failed: {e}")
+                # Fallback: only if we haven't already deleted the message
+                try:
+                    if cleaned_content.strip():
+                        await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
+                except: pass
 
 if __name__ == '__main__':
     bot = PurelinkBot(intents=intents)
