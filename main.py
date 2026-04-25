@@ -4,6 +4,7 @@ import re
 import json
 import discord
 import time
+import aiohttp
 from prometheus_client import Counter, Gauge
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
@@ -22,8 +23,10 @@ def log(msg):
 # Try to load private API plugin if exists
 API_PLUGIN = None
 if os.path.exists('api_plugin.py'):
-    import api_plugin
-    API_PLUGIN = api_plugin
+    try:
+        import api_plugin
+        API_PLUGIN = api_plugin
+    except: pass
 
 TOKEN = os.getenv('TOKEN')
 CONFIG = {
@@ -40,9 +43,11 @@ class PurelinkBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.processed_cache = {} # msg_id: timestamp
+        self.session = None
 
     async def setup_hook(self):
         log(f"SUCCESS: Logged in as {self.user}")
+        self.session = aiohttp.ClientSession(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
         if API_PLUGIN:
             metrics = {
                 'LINKS_CLEANED': LINKS_CLEANED,
@@ -53,7 +58,8 @@ class PurelinkBot(discord.Client):
                 'START_TIME': START_TIME,
                 'PORT_PROM': 8000
             }
-            self.loop.run_in_executor(None, API_PLUGIN.initialize_monitoring, metrics)
+            try: self.loop.run_in_executor(None, API_PLUGIN.initialize_monitoring, metrics)
+            except: pass
             log("PLUGIN: Private Monitoring Bridge initialized.")
         self.loop.create_task(self.update_uptime())
 
@@ -67,42 +73,32 @@ class PurelinkBot(discord.Client):
             await asyncio.sleep(15)
 
     def unwrap_link(self, url):
-        p = urlparse(url)
-        qs = parse_qs(p.query)
-        clean_qs = {}
-        for k, v in qs.items():
-            if not any(kw in k.lower() for kw in CONFIG["tracking_keywords"]):
-                clean_qs[k] = v
-        
-        clean_path = p.path
-        if "amazon" in p.netloc.lower():
-            clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
+        try:
+            p = urlparse(url)
+            qs = parse_qs(p.query)
+            clean_qs = {}
+            for k, v in qs.items():
+                if not any(kw in k.lower() for kw in CONFIG["tracking_keywords"]):
+                    clean_qs[k] = v
             
-        new_query = urlencode(clean_qs, doseq=True)
-        return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
+            clean_path = p.path
+            if "amazon" in p.netloc.lower():
+                clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
+                
+            new_query = urlencode(clean_qs, doseq=True)
+            return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
+        except: return url
 
     async def _resolve_chain(self, url):
-        current_url = url
-        for _ in range(5):
-            # NO '-I' here to keep STDOUT clean of headers
-            cmd = ["curl", "-Ls", "-o", "/dev/null", "-m", "5", "-w", "%{url_effective}", current_url]
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-            stdout, _ = await proc.communicate()
-            if not stdout: break
-            
-            new_url = stdout.decode().strip()
-            # Safety: If curl fails to give a URL, keep the current one
-            if not new_url or not new_url.startswith("http"): 
-                break
-                
-            if new_url == current_url: break
-            current_url = new_url
-        return current_url
+        if not self.session: return url
+        try:
+            async with self.session.head(url, allow_redirects=True, timeout=5) as resp:
+                return str(resp.url)
+        except:
+            return url
 
     async def on_message(self, message):
         if message.author.bot: return
-        
-        # Anti-Triple Response Protection
         if message.id in self.processed_cache: return
         self.processed_cache[message.id] = time.time()
 
@@ -117,17 +113,14 @@ class PurelinkBot(discord.Client):
             u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
             
-            # Explicitly Skip Unsupported Domains
-            if any(d in domain for d in CONFIG.get("unsupported_domains", [])):
-                continue
+            if any(d in domain for d in CONFIG["unsupported_domains"]): continue
 
-            # Simple resolve and clean
             new_url = u_clean
             if any(d in domain for d in CONFIG["unwrap_domains"]) or any(kw in u_clean for kw in CONFIG["tracking_keywords"]):
                 new_url = await self._resolve_chain(u_clean)
                 new_url = self.unwrap_link(new_url)
 
-            if new_url != u_clean:
+            if new_url != u_clean and new_url.startswith("http"):
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
@@ -146,8 +139,9 @@ class PurelinkBot(discord.Client):
                     allowed_mentions=discord.AllowedMentions.none()
                 )
             except:
-                await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
+                try: await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
+                except: pass
 
 if __name__ == '__main__':
-    bot = PurelinkBot(intents=intents)
+    bot = PurelinkBot()
     bot.run(TOKEN)
