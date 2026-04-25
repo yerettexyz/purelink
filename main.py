@@ -13,7 +13,7 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Copyright (c) 2024 Purelink Team
 
 # Core Configuration
-# Added new shorteners: lordofsavings, tdgdeals, pricedoffers
+# Added lordofsavings, tdgdeals, pricedoffers
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
@@ -21,7 +21,12 @@ UNWRAP_DOMAINS = [
     "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
-SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
+
+# Expanded SEARCH_KEEPERS to preserve price filters and refining nodes
+SEARCH_KEEPERS = [
+    'k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36', 
+    'rnid', 'crid', 'low-price', 'high-price', 'sprefix'
+]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
 HEADERS = {
@@ -58,7 +63,6 @@ async def unwrap_link(url: str) -> str:
         timeout=10.0
     ) as httpx_client:
         try:
-            # We use a HEAD request first as it's faster for redirects
             response = await httpx_client.get(url)
             if response.status_code == 200:
                 final_url = str(response.url)
@@ -74,11 +78,20 @@ async def unwrap_link(url: str) -> str:
 
     # Apply Purity Logic
     p = urlparse(final_url)
-    if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
-        # If it's a search page, use mild cleaning (preserves keywords k, q, etc.)
-        return clear_url(final_url)
+    is_search = p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query
+    
+    if is_search:
+        # Precision cleaning for search pages: Strip trackers but KEEP valid search keywords and filters
+        qs = parse_qs(p.query)
+        clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
+        
+        if clean_qs:
+            new_query = urlencode(clean_qs, doseq=True)
+            return urlunparse((p.scheme, p.netloc, p.path, '', new_query, ''))
+        else:
+            return clear_url(final_url).strip('&')
     else:
-        # If it's a product or general page, strip all parameters for Total Purity
+        # Total Purity for Product Pages: Strip ALL params
         if p.scheme and p.netloc:
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
