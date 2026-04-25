@@ -149,7 +149,7 @@ async def on_message(message):
                 webhook = await message.channel.create_webhook(name="Purelink Cleaner")
 
             await webhook.send(
-                content=cleaned_content + "\n\n*Link cleaned by Purelink*",
+                content=cleaned_content + "\n\n-# *Link cleaned by Purelink*",
                 username=message.author.display_name,
                 avatar_url=message.author.display_avatar.url,
                 allowed_mentions=discord.AllowedMentions.none()
