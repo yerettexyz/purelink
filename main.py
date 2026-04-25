@@ -29,7 +29,8 @@ TOKEN = os.getenv('TOKEN')
 CONFIG = {
     "unwrap_domains": ["bit.ly", "t.co", "tinyurl.com", "amzn.to", "a.co"],
     "tracking_keywords": ["aff_", "utm_", "ref_", "click_id", "tag="],
-    "banned_domains": ["discord.gg", "discord.com/invite"]
+    "banned_domains": ["discord.gg", "discord.com/invite"],
+    "unsupported_domains": ["rebrandly.com", "rebrand.ly"]
 }
 
 intents = discord.Intents.default()
@@ -83,11 +84,13 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url):
         current_url = url
         for _ in range(5):
-            cmd = ["curl", "-sI", "-L", "-m", "5", "-w", "%{url_effective}", current_url]
+            # Only output the URL, nothing else
+            cmd = ["curl", "-sI", "-L", "-m", "5", "-o", "/dev/null", "-w", "%{url_effective}", current_url]
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             stdout, _ = await proc.communicate()
             if not stdout: break
-            new_url = stdout.decode().strip().split('\n')[-1]
+            new_url = stdout.decode().strip()
+            if not new_url.startswith("http"): break
             if new_url == current_url: break
             current_url = new_url
         return current_url
@@ -110,6 +113,10 @@ class PurelinkBot(discord.Client):
             u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
             
+            # Explicitly Skip Unsupported Domains
+            if any(d in domain for d in CONFIG.get("unsupported_domains", [])):
+                continue
+
             # Simple resolve and clean
             new_url = u_clean
             if any(d in domain for d in CONFIG["unwrap_domains"]) or any(kw in u_clean for kw in CONFIG["tracking_keywords"]):
