@@ -112,6 +112,8 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url):
         def _fetch(u):
             import urllib.request
+            if not any(u.startswith(p) for p in ['http://', 'https://']):
+                return u
             req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
             return urllib.request.urlopen(req, timeout=5).geturl()
         try:
