@@ -32,31 +32,36 @@ intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects with a backup to third-party unshorteners if blocked."""
+    """Follows redirects with multiple failovers for tough-to-crack affiliate links."""
     
-    # Check if it's a known problematic Mavely link
     is_mavely = any(d in url for d in ["mavely.app", "mavelylife.com"])
     
     if is_mavely:
-        # FAILOVER: Use a third-party unshortener to bypass IP blocks on Oracle Cloud
-        # unshorten.me is a reliable public API for this
+        # Multi-Stage Failover for Mavely (Bypasses IP blocks)
+        # Service 1: unshorten.me
+        # Service 2: expandurl.net (Scraped)
         try:
-            async with httpx.AsyncClient(timeout=15.0) as unshorten_client:
-                print(f"[DEBUG] Using failover for Mavely link: {url}")
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as unshorten_client:
+                # Attempt 1: unshorten.me
                 resp = await unshorten_client.get(f"https://unshorten.me/s/{url}")
-                if resp.status_code == 200 and "unshorten.me" not in resp.text:
-                    url = resp.text.strip()
-                    print(f"[DEBUG] Failover Success: {url}")
-                    # If we got the store URL, go to purity logic immediately
-                    p = urlparse(url)
-                    if any(d in p.netloc for d in UNWRAP_DOMAINS):
-                        pass # Keep resolving if it's still an affiliate domain
-                    else:
-                        return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
-        except Exception as e:
-            print(f"[DEBUG] Failover error: {e}")
+                if resp.status_code == 200 and "Unknown Error" not in resp.text and "unshorten.me" not in resp.text:
+                    decoded = resp.text.strip()
+                    if "http" in decoded:
+                        print(f"[DEBUG] Failover 1 (unshorten.me) Success")
+                        return await finalize_url(decoded)
 
-    # Standard resolution for everything else
+                # Attempt 2: expandurl.net (Scraping the result)
+                resp = await unshorten_client.get(f"https://www.expandurl.net/expand?url={url}")
+                if resp.status_code == 200:
+                    # Look for the long URL in the page source
+                    match = re.search(r'id="longest-url"[^>]*>(?P<url>https?://[^<]+)</a>', resp.text)
+                    if match:
+                        print(f"[DEBUG] Failover 2 (expandurl.net) Success")
+                        return await finalize_url(match.group("url"))
+        except Exception as e:
+            print(f"[DEBUG] Failover failed: {e}")
+
+    # Standard resolution for everything else (Amazon, etc.)
     async with httpx.AsyncClient(
         follow_redirects=True, 
         max_redirects=15, 
@@ -67,54 +72,38 @@ async def unwrap_link(url: str) -> str:
     ) as httpx_client:
         hops = 0
         current_url = url
-        last_url = url
-        
         while hops < 15:
             try:
                 response = await httpx_client.get(current_url)
+                current_url = str(response.url)
                 
-                # Check for Meta Refresh / JS
-                patterns = [
-                    r'window\.location\.replace\(["\'](?P<url>https?://[^"\']+)["\']\)',
-                    r'content=["\']\d+;\s*url=(?P<url>https?://[^"\']+)["\']',
-                ]
-                
-                found_hidden = False
-                for pattern in patterns:
-                    match = re.search(pattern, response.text, re.I)
-                    if match:
-                        current_url = match.group("url")
-                        found_hidden = True
-                        break
-                
-                if found_hidden:
+                # Check for Meta Refresh
+                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
+                if meta_match:
+                    current_url = meta_match.group("url")
                     hops += 1
                     continue
 
-                if response.status_code != 200 and response.status_code != 301 and response.status_code != 302:
+                if response.status_code != 200:
                     break
-
-                last_url = current_url
-                current_url = str(response.url)
                 
                 parsed_final = urlparse(current_url)
                 if not any(d in parsed_final.netloc for d in UNWRAP_DOMAINS):
                     break
-                    
             except Exception:
                 break
             hops += 1
-        
-        final_url = current_url
+        return await finalize_url(current_url)
 
-    # Smart Purity Logic
-    p = urlparse(final_url)
+async def finalize_url(url: str) -> str:
+    """Applies smart purity logic to the final resolved URL."""
+    p = urlparse(url)
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
-        return clear_url(final_url)
+        return clear_url(url)
     else:
         if p.scheme and p.netloc:
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
-        return final_url
+        return url
 
 @client.event
 async def on_ready():
@@ -123,7 +112,6 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    print(f"[DEBUG] Heartbeat: Message from {message.author}")
     if message.author.bot:
         return
 
@@ -135,11 +123,10 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        standard_cleaned = clear_url(url).strip('&')
         should_unwrap = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
-        if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
+        if should_unwrap or is_tracking_kw:
             print(f"[DEBUG] Processing: {url}")
             new_url = await unwrap_link(url)
             
