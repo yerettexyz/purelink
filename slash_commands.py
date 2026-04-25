@@ -14,7 +14,8 @@ def register_commands(tree):
             color=0x3498db # Simple Blue
         )
         embed.add_field(name="Source Code", value="[GitHub Repository](https://github.com/yerettexyz/purelink)", inline=False)
-        embed.add_field(name="Network Status", value="[Live Status Page](https://purelink-status.pages.dev)", inline=False)
+        embed.add_field(name="Purelink Stats", value="[Live Status Page](https://purelink-status.pages.dev)", inline=False)
+        embed.add_field(name="Add Bot", value="[Add Bot](https://yerette.xyz/purelink)", inline=False)
         embed.set_footer(text="Purelink v1.1.0")
         
         logo_path = "IMG_9915.webp"
