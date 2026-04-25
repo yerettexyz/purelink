@@ -3251,7 +3251,6 @@
         "tracking.shopstyle.com",
         "tracking.thinkabt.com",
         "tracking.wetter.at",
-        "tracking01.walmart.com",
         "tracking101.com",
         "tracking22.com",
         "trackingsoft.com",
@@ -3408,8 +3407,6 @@
         "w55c.net",
         "wa.and.co.uk",
         "waardex.com",
-        "walmart.com",
-        "walmrt.us",
         "warmafterthought.com",
         "washbanana.com",
         "wdads.sx.atl.publicus.com",
@@ -3541,7 +3538,9 @@
         "zonewedgeshaft.com",
         "zpu.samsungelectronics.com",
         "zqtk.net",
-        "zzhc.vnet.cn"
+        "zzhc.vnet.cn",
+        "rebrand.ly"
+
     ],
     "tracking_keywords": [
         "utm_",
@@ -3551,7 +3550,11 @@
         "cjdata",
         "tag=",
         "linkId=",
-        "ref="
+        "ref=",
+        "xcm_",
+        "tdp",
+        "CMP"
+
     ],
     "peek_keys": [
         "return",
