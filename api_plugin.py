@@ -5,6 +5,7 @@ import os
 import json
 import time
 
+import slash_commands
 from discord import app_commands
 
 # --- Non-Invasive Guard & Slash Commands ---
@@ -12,52 +13,22 @@ IGNORE_FILE = 'ignore.json'
 original_dispatch = discord.Client.dispatch
 COMMANDS_SYNCED = False
 
-async def setup_real_slash_commands(bot):
+# Universal Interaction Hook: This is the missing piece for Client-based slash commands
+async def universal_on_interaction(interaction):
+    if hasattr(interaction.client, 'tree'):
+        await interaction.client.tree.on_interaction(interaction)
+
+discord.Client.on_interaction = universal_on_interaction
+
+async def setup_plugin_system(bot):
     global COMMANDS_SYNCED
     if COMMANDS_SYNCED: return
     
     if not hasattr(bot, 'tree'):
         bot.tree = app_commands.CommandTree(bot)
-
-    @bot.tree.command(name="purelink_help", description="Show Purelink plugin help")
-    async def help_cmd(interaction: discord.Interaction):
-        help_text = (
-            "💡 **Purelink Plugin Help**\n"
-            "`/ignore_channel <id>` - Stop bot from cleaning links in a channel\n"
-            "`/ignore_user <id>` - Stop bot from cleaning links for a user\n"
-            "-# *Native Slash Commands System*"
-        )
-        await interaction.response.send_message(help_text, ephemeral=True)
-
-    @bot.tree.command(name="ignore_channel", description="Add a channel to the ignore list")
-    @app_commands.describe(channel_id="The ID of the channel to ignore")
-    async def ignore_channel(interaction: discord.Interaction, channel_id: str):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        
-        try:
-            with open(IGNORE_FILE, 'r') as f: data = json.load(f)
-            data.setdefault('ignored_channels', []).append(int(channel_id))
-            data['ignored_channels'] = list(set(data['ignored_channels']))
-            with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
-            await interaction.response.send_message(f"✅ Channel `{channel_id}` ignored.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
-
-    @bot.tree.command(name="ignore_user", description="Add a user to the ignore list")
-    @app_commands.describe(user_id="The ID of the user to ignore")
-    async def ignore_user(interaction: discord.Interaction, user_id: str):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        
-        try:
-            with open(IGNORE_FILE, 'r') as f: data = json.load(f)
-            data.setdefault('ignored_users', []).append(int(user_id))
-            data['ignored_users'] = list(set(data['ignored_users']))
-            with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
-            await interaction.response.send_message(f"✅ User `{user_id}` ignored.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+    
+    # Load commands from external file
+    slash_commands.register_commands(bot.tree)
 
     try:
         await bot.tree.sync()
@@ -69,29 +40,23 @@ async def setup_real_slash_commands(bot):
 def patched_dispatch(self, event_name, *args, **kwargs):
     # 1. Setup Slash Commands on Ready
     if event_name == 'ready' and not COMMANDS_SYNCED:
-        asyncio.run_coroutine_threadsafe(setup_real_slash_commands(self), self.loop)
+        asyncio.run_coroutine_threadsafe(setup_plugin_system(self), self.loop)
 
-    # 2. Handle Slash Command Interactions
-    if event_name == 'interaction':
-        interaction = args[0]
-        if hasattr(self, 'tree'):
-            # Manually trigger the tree to handle the interaction
-            self.loop.create_task(self.tree.on_interaction(interaction))
-            # DO NOT return here, let original dispatch potentially handle other things if needed
-
-    # 3. Handle Message Filtering (The "Ignore" System)
+    # 2. Handle Message Filtering (The "Ignore" System)
     if event_name == 'message':
         try:
             message = args[0]
             if not message.author.bot and os.path.exists(IGNORE_FILE):
                 with open(IGNORE_FILE, 'r') as f: data = json.load(f)
-                if str(message.author.id) in [str(i) for i in data.get('ignored_users', [])] or \
-                   str(message.channel.id) in [str(i) for i in data.get('ignored_channels', [])]:
+                id_list = [str(i) for i in data.get('ignored_users', []) + data.get('ignored_channels', [])]
+                if str(message.author.id) in id_list or str(message.channel.id) in id_list:
                     return # Block from main.py
         except: pass
 
-    # 4. Standard Dispatch
+    # 3. Standard Dispatch
     return original_dispatch(self, event_name, *args, **kwargs)
+
+discord.Client.dispatch = patched_dispatch
 
 discord.Client.dispatch = patched_dispatch
 
