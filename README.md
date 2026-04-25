@@ -11,10 +11,10 @@ For the fastest experience, use the official hosted instance. It requires zero s
 **[Add Purelink to Discord](https://yerette.xyz/purelink)**
 
 ## Key Features
-- **Mavely Unwrapping**: Automatically follows redirects (up to 5 hops) for `mavely.app` and `joinmavely.com` links.
+- **3,500+ Tracking Domains**: Integrated a massive blocklist to unwrap and sanitize thousands of ad, affiliate, and tracking domains.
+- **Mavely & Amazon Sanitization**: Specialized logic to clean Mavely redirects and surgically strip Amazon tracking.
 - **Webhook Reposting**: Seamlessly deletes original "dirty" messages and reposts them as the original user (using webhooks) with pure links.
-- **Privacy Enhanced**: Strips UTM and other tracking parameters using the [Unalix](https://github.com/AmanoTeam/Unalix) library.
-- **Minimal Footprint**: Adds a subtle "Link cleaned by Purelink" footer to processed messages.
+- **Dynamic Configuration**: Powered by a decoupled `data.json` for easy updates to tracking rules without code changes.
 
 ---
 
@@ -27,7 +27,7 @@ For the fastest experience, use the official hosted instance. It requires zero s
 ### 2. Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/psalm2517/purelink.git
+   git clone https://github.com/yerettexyz/purelink.git
    cd purelink
    ```
 2. Install dependencies:
