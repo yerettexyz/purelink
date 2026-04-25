@@ -143,14 +143,28 @@ class PurelinkBot(discord.Client):
             # 2. Strip tracking from final link
             new_url = self.unwrap_link(target_url)
 
-            # 3. Apply change if cleaned or unwrapped
-            if new_url and new_url != u_clean:
+            # 3. Check for Banned Domains (Total Nuke)
+            is_banned = any(d in target_url.lower() or d in domain for d in CONFIG.get("banned_domains", []))
+
+            # 4. Apply change if cleaned, unwrapped, or banned
+            if is_banned:
+                cleaned_content = cleaned_content.replace(url, "", 1)
+                any_cleaned = True
+                LINKS_CLEANED.inc()
+            elif new_url and new_url != u_clean:
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
 
         if any_cleaned:
-            if not cleaned_content.strip(): return
+            # Clean up whitespace if we removed a whole link
+            cleaned_content = re.sub(r' +', ' ', cleaned_content).strip()
+            if not cleaned_content: 
+                # If nothing is left, just delete the original and don't repost
+                try: await message.delete()
+                except: pass
+                return
+
             try:
                 # Nuke and Repost
                 await message.delete()
@@ -167,6 +181,7 @@ class PurelinkBot(discord.Client):
                 # Fallback if nuke/webhook fails
                 try: await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
                 except: pass
+
 
 
 if __name__ == '__main__':
