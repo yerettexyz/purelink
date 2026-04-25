@@ -29,6 +29,7 @@ with open(PID_FILE, "w") as f:
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
 LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total links removed (banned)')
+HOPS_TOTAL = Counter('purelink_hops_total', 'Total URL redirects resolved')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = time.time()
 
@@ -72,7 +73,7 @@ class PurelinkBot(discord.Client):
                 'LINKS_CLEANED': LINKS_CLEANED,
                 'LINKS_DETECTED': LINKS_DETECTED,
                 'LINKS_NUKED': LINKS_NUKED,
-                'HOPS_TOTAL': Counter('dummy_hops', 'hops'),
+                'HOPS_TOTAL': HOPS_TOTAL,
                 'ERRORS_TOTAL': Counter('dummy_err', 'err'),
                 'START_TIME': START_TIME,
                 'PORT_PROM': 8000
@@ -114,7 +115,10 @@ class PurelinkBot(discord.Client):
             req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
             return urllib.request.urlopen(req, timeout=5).geturl()
         try:
-            return await self.loop.run_in_executor(None, _fetch, url)
+            final_url = await self.loop.run_in_executor(None, _fetch, url)
+            if final_url and final_url != url:
+                HOPS_TOTAL.inc()
+            return final_url
         except: return url
 
     async def on_message(self, message):
