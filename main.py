@@ -145,5 +145,5 @@ class PurelinkBot(discord.Client):
                 await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
 
 if __name__ == '__main__':
-    bot = PurelinkBot()
+    bot = PurelinkBot(intents=intents)
     bot.run(TOKEN)
