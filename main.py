@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
 
-# Import curl_cffi for the ultimate Cloudflare bypass
+# Import curl_cffi for the best possible bypass
 try:
     from curl_cffi.requests import AsyncSession
     HAS_CURL_CFFI = True
@@ -34,34 +34,38 @@ intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects using curl_cffi to spoof TLS fingerprints and bypass Cloudflare."""
+    """Follows redirects using curl_cffi, or falls back to a 'naked' affiliate link if blocked."""
     
     final_url = url
     
+    # Pre-cleaning: Even if we can't unwrap, we should at least return a 'naked' URL
+    p_initial = urlparse(url)
+    naked_url = urlunparse((p_initial.scheme, p_initial.netloc, p_initial.path, '', '', ''))
+
     if HAS_CURL_CFFI:
-        # ULTIMATE STEALTH: Spoofing Chrome 120 TLS fingerprint
-        async with AsyncSession(impersonate="chrome120") as s:
-            try:
+        try:
+            async with AsyncSession(impersonate="chrome120") as s:
                 print(f"[DEBUG] Impersonating Chrome for: {url}")
                 resp = await s.get(url, follow_redirects=True, timeout=15)
-                final_url = str(resp.url)
-                
-                # Check for Meta Refresh in the stealth response
-                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
-                if meta_match:
-                    final_url = await unwrap_link(meta_match.group("url"))
-            except Exception as e:
-                print(f"[DEBUG] Stealth resolution failed: {e}")
+                # If we hit a 403, we didn't resolve, but we'll try to find a URL in the text anyway
+                if resp.status_code == 200:
+                    final_url = str(resp.url)
+                    # Check for Meta Refresh / JS
+                    meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
+                    if meta_match:
+                        # Recursive unwrap for the meta link
+                        final_url = await unwrap_link(meta_match.group("url"))
+                else:
+                    print(f"[DEBUG] Resolution failed (Status {resp.status_code}), returning naked URL.")
+                    final_url = naked_url
+        except Exception as e:
+            print(f"[DEBUG] Stealth error: {e}")
+            final_url = naked_url
     else:
-        # Fallback to standard httpx if library is missing
-        async with httpx.AsyncClient(follow_redirects=True, timeout=12.0) as httpx_client:
-            try:
-                resp = await httpx_client.get(url)
-                final_url = str(resp.url)
-            except:
-                pass
+        # Fallback to a naked URL if curl_cffi is missing and resolution fails
+        final_url = naked_url
 
-    # Smart Purity Logic
+    # Smart Purity Logic for the resolved URL
     p = urlparse(final_url)
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
         return clear_url(final_url)
@@ -95,10 +99,11 @@ async def on_message(message):
             print(f"[DEBUG] Processing: {url}")
             new_url = await unwrap_link(url)
             
+            # If the link simplified or changed, we cleaned it
             if new_url != url or should_unwrap:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
-                print(f"[DEBUG] -> Final: {new_url}")
+                print(f"[DEBUG] -> Success: {new_url}")
 
     if any_cleaned:
         try:
