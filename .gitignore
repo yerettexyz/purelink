@@ -58,6 +58,7 @@ purelink_stats_frontend/
 # Local configuration
 .env
 data.json
+stats_cache.json
 
 # Translations
 *.mo
