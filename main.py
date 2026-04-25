@@ -189,7 +189,7 @@ class PurelinkBot(discord.Client):
                         is_tracking = True
                         break
                 else:
-                    if kw_lower in k_lower:
+                    if kw_clean in k_lower:
                         is_tracking = True
                         break
             
