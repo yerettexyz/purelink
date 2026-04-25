@@ -94,7 +94,11 @@ class PurelinkBot(discord.Client):
         if not self.session: return url
         try:
             async with self.session.get(url, allow_redirects=True, timeout=5) as resp:
-                return str(resp.url)
+                final_url = str(resp.url)
+                # Shield: If too short or not HTTP, it's garbage. 
+                if not final_url or len(final_url) < 15 or not final_url.startswith("http"):
+                    return url
+                return final_url
         except:
             return url
 
