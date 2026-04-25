@@ -29,6 +29,7 @@ def load_config():
         return {
             "unwrap_domains": ["amzn.to", "bit.ly"],
             "unsupported_domains": ["walmart.com", "mavelylife.com"],
+            "banned_domains": ["linktr.ee"],
             "tracking_keywords": ["utm_", "ref="],
             "peek_keys": ["url"],
             "search_keepers": ["k", "q"]
@@ -217,6 +218,16 @@ class PurelinkBot(discord.Client):
 
         for url in urls:
             u_clean = url.rstrip('.,!?;:')
+            domain = urlparse(u_clean).netloc.lower()
+
+            # 1. Check for banned domains (Nuke entirely)
+            if any(d in domain for d in CONFIG.get("banned_domains", [])):
+                cleaned_content = cleaned_content.replace(url, "", 1).strip()
+                any_cleaned = True
+                log(f"NUKE: Removed banned link {url}")
+                continue
+
+            # 2. Regular cleaning
             new_url = await self.unwrap_link(u_clean)
             if new_url != u_clean:
                 # Replace only the first occurrence to prevent content injection

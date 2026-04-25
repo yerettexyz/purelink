@@ -3601,5 +3601,8 @@
         "theblogcm.com",
         "walmart.com",
         "walmrt.us"
+    ],
+    "banned_domains": [
+        "linktr.ee"
     ]
 }
