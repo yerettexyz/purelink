@@ -93,18 +93,13 @@ class PurelinkBot(discord.Client):
 
     async def _resolve_chain(self, url: str) -> str:
         current_url = url
-        log(f"DEBUG: Entering resolve_chain with {current_url}")
         for hop in range(1, 10):
-            log(f"DEBUG: Starting Hop {hop} with {current_url}")
             # SSRF check before any outbound request
-            safe = is_ssrf_safe(current_url)
-            log(f"DEBUG: SSRF safe={safe} for {current_url}")
-            if not safe:
+            if not is_ssrf_safe(current_url):
                 log(f"SSRF BLOCKED: {current_url}")
                 return url
 
             # 1. Peek
-            log(f"DEBUG: Peeking into {current_url}")
             p = urlparse(current_url)
             qs = parse_qs(p.query)
             peeked = False
@@ -205,7 +200,6 @@ class PurelinkBot(discord.Client):
             u_clean = url.rstrip('.,!?;:')
             new_url = await self.unwrap_link(u_clean)
             if new_url != u_clean:
-                log(f"CLEAN SUCCESS: {url} -> {new_url}")
                 # Replace only the first occurrence to prevent content injection
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
