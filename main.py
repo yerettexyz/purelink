@@ -138,6 +138,7 @@ async def on_ready():
 @process_message_time.time()
 @client.event
 async def on_message(message):
+    print(f"[DEBUG] Heartbeat: Received message from {message.author}")
     if message.author.bot:
         return
 
