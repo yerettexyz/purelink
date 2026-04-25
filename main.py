@@ -29,21 +29,13 @@ if os.path.exists('api_plugin.py'):
     except: pass
 
 TOKEN = os.getenv('TOKEN')
-CONFIG = {
-    "unwrap_domains": ["bit.ly", "t.co", "tinyurl.com", "amzn.to", "a.co"],
-    "tracking_keywords": ["aff_", "utm_", "ref_", "click_id", "tag="],
-    "banned_domains": ["discord.gg", "discord.com/invite"],
-    "unsupported_domains": ["rebrandly.com", "rebrand.ly"]
-}
-
-# Dynamically load the thousands of custom domains from data.json
+# Retrieve ALL configurations strictly from data.json
 try:
     with open('data.json', 'r', encoding='utf-8') as f:
-        custom_data = json.load(f)
-        if "unwrap_domains" in custom_data:
-            CONFIG["unwrap_domains"].extend(custom_data["unwrap_domains"])
+        CONFIG = json.load(f)
 except Exception as e:
-    log(f"Warning: Could not merge data.json - {e}")
+    log(f"FATAL ERROR: Could not load data.json - {e}")
+    CONFIG = {"unwrap_domains": [], "tracking_keywords": [], "banned_domains": [], "unsupported_domains": []}
 
 
 intents = discord.Intents.default()
