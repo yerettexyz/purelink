@@ -5,6 +5,11 @@
 
 Purelink is a high-performance fork of the ClearURLs Discord Bot, specifically tailored to detect, clean, and unwrap tracking links. It specializes in following affiliate redirects (like Mavely) to extract pure destination URLs before they clutter your chat.
 
+## 🚀 Quick Start
+For the fastest experience, use the official hosted instance. It requires zero setup—just plug and play.
+
+**[Add Purelink to Discord](https://yerette.xyz/purelink)**
+
 ## Key Features
 - **Mavely Unwrapping**: Automatically follows redirects (up to 5 hops) for `mavely.app` and `joinmavely.com` links.
 - **Webhook Reposting**: Seamlessly deletes original "dirty" messages and reposts them as the original user (using webhooks) with pure links.
