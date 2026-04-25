@@ -14,13 +14,12 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Licensed under LGPL-3.0
 
 # Purelink Configuration
-# Explicitly listing subdomains that Mavely uses to ensure they trigger the unwrapper
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
     "amzn.to", "a.co", "bit.ly", "tinyurl.com"
 ]
-TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid"]
+TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
 
@@ -34,12 +33,6 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
 }
 
 intents = discord.Intents.default()
@@ -59,51 +52,50 @@ async def count_servers_members():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects (HTTP and Meta Refresh) with stealth to bypass bot filters."""
+    """Follows redirects and cleans appropriately for product vs search pages."""
     
-    # We use a cookies jar to maintain session state through redirects (often required for affiliate links)
+    final_url = url
     async with httpx.AsyncClient(
         follow_redirects=True, 
         max_redirects=10, 
         headers=HEADERS, 
         cookies=httpx.Cookies(),
-        http2=True, # Modern sites often check for HTTP2
-        timeout=15.0
+        http2=True,
+        timeout=12.0
     ) as httpx_client:
         hops = 0
         current_url = url
         while hops < 10:
             parsed = urlparse(current_url)
+            should_unwrap = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
             
-            # If we've already hopped to a real store, check if we should stop
-            is_generic_shortener = any(d in parsed.netloc for d in ["bit.ly", "tinyurl.com"])
-            is_aff_domain = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
-            
-            # If we land on a store but there's a meta refresh, we keep going
             try:
                 response = await httpx_client.get(current_url)
                 current_url = str(response.url)
                 
-                # Check for Meta Refresh in HTML
+                # Check for Meta Refresh
                 match = RE_META_REFRESH.search(response.text)
                 if match:
                     current_url = match.group("url")
                     hops += 1
                     continue 
                 else:
-                    # If we're off the unwrap list and no meta refresh, we're done
-                    if not is_aff_domain:
+                    if not should_unwrap and hops > 0:
                         break
-            except Exception as e:
-                print(f"Unwrap error: {e}")
+            except Exception:
                 break
             hops += 1
         
         final_url = current_url
 
-    # Total Purity: Strip ALL query parameters from the final resolved URL
+    # Smart Purity Logic
     p = urlparse(final_url)
-    return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+    # Don't strip ALL params for search pages (Amazon /s or Google /search)
+    if p.path.endswith('/s') or '/search' in p.path:
+        return clear_url(final_url)
+    else:
+        # Total Purity for everything else (Product pages)
+        return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
 @client.event
 async def on_ready():
@@ -126,15 +118,15 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        # Check against pure unalix cleaning and our custom domains/keywords
         standard_cleaned = clear_url(url).strip('&')
         should_unwrap = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
-            # Perform total purity cleaning
             new_url = await unwrap_link(url)
-            if new_url != url.strip('&'):
+            # If it's a known affiliate domain or search, we ALWAYS consider it "cleaned" 
+            # to ensure the webhook repost happens even if the URL didn't change much.
+            if new_url != url or should_unwrap:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
 
@@ -165,12 +157,12 @@ async def on_message(message):
 if __name__ == '__main__':
     load_dotenv()
     token = os.getenv('TOKEN')
-    metrics_port = int(os.getenv('METRICS_PORT', 8000))
 
     if not token:
         print("CRITICAL ERROR: No TOKEN found in .env file.")
         exit(1)
 
+    # Use a default port if environment variable is missing
+    metrics_port = int(os.getenv('METRICS_PORT', 8000))
     start_http_server(metrics_port)
-    print(f"Metrics server started on port {metrics_port}")
     client.run(token)
