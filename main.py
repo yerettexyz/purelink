@@ -87,6 +87,7 @@ async def unwrap_link(url: str) -> str:
 
 @client.event
 async def on_ready():
+    await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
     print(f'>>> SUCCESS: Purelink is ready as {client.user}')
 
 @client.event
