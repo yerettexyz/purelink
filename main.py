@@ -146,7 +146,7 @@ class PurelinkBot(discord.Client):
                     allowed_mentions=discord.AllowedMentions.none()
                 )
             except:
-                try: await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
+                try: await message.channel.send(f"**Cleaned link(s) (PID {os.getpid()}):**\n{cleaned_content}")
                 except: pass
 
 if __name__ == '__main__':
