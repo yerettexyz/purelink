@@ -14,7 +14,7 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Licensed under LGPL-3.0
 
 # Purelink Configuration
-UNWRAP_DOMAINS = ["mavely.app", "joinmavely.com", "amzn.to", "a.co"]
+UNWRAP_DOMAINS = ["mavely.app", "joinmavely.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com"]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid"]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
