@@ -22,7 +22,9 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag="]
 REDIRECT_KEYS = ["return", "url", "dest", "u", "q"]
 SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price']
 
-intents = discord.Intents.all()
+# Reduced Intents to avoid portal mismatch crashes
+intents = discord.Intents.default()
+intents.message_content = True
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
