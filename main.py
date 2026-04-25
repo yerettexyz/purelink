@@ -4,8 +4,18 @@ import re
 import json
 import ipaddress
 import discord
+from prometheus_client import start_http_server, Counter, Gauge
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
+
+# --- Metrics ---
+METRICS_PORT = 8000
+MSG_PROCESSED = Counter('purelink_messages_total', 'Total messages processed')
+LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
+LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
+ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
+BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
+START_TIME = asyncio.get_event_loop().time()
 
 # Purelink - JSON Powered Edition
 # Configuration is now decoupled from the source code.
@@ -89,9 +99,25 @@ intents.message_content = True
 MAX_URLS_PER_MESSAGE = 5
 
 class PurelinkBot(discord.Client):
-    async def on_ready(self):
+    async def setup_hook(self):
         log(f"SUCCESS: Logged in as {self.user}")
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
+        activity = discord.Activity(type=discord.ActivityType.watching, name="for tracking links")
+        await self.change_presence(activity=activity)
+        
+        # Start Prometheus metrics server
+        try:
+            start_http_server(METRICS_PORT)
+            log(f"METRICS: Server listening on port {METRICS_PORT}")
+        except Exception as e:
+            log(f"METRICS ERROR: Failed to start server: {e}")
+
+        # Start uptime tracker
+        self.loop.create_task(self.update_uptime())
+
+    async def update_uptime(self):
+        while not self.is_closed():
+            BOT_UPTIME.set(asyncio.get_event_loop().time() - START_TIME)
+            await asyncio.sleep(60)
 
     async def _resolve_chain(self, url: str) -> str:
         current_url = url
@@ -168,6 +194,7 @@ class PurelinkBot(discord.Client):
             try:
                 final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
             except Exception as e:
+                ERRORS_TOTAL.inc()
                 log(f"UNWRAP ERROR: {e}")
                 final_url = url
 
@@ -209,8 +236,10 @@ class PurelinkBot(discord.Client):
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
+        MSG_PROCESSED.inc()
         # Cap URLs per message to prevent DoS
         urls = urls[:MAX_URLS_PER_MESSAGE]
+        LINKS_DETECTED.inc(len(urls))
 
         log(f"EVENT: Processing {len(urls)} links from {message.author}")
         cleaned_content = message.content
@@ -224,12 +253,14 @@ class PurelinkBot(discord.Client):
             if any(d in domain for d in CONFIG.get("banned_domains", [])):
                 cleaned_content = cleaned_content.replace(url, "", 1).strip()
                 any_cleaned = True
+                LINKS_CLEANED.inc()
                 log(f"NUKE: Removed banned link {url}")
                 continue
 
             # 2. Regular cleaning
             new_url = await self.unwrap_link(u_clean)
             if new_url != u_clean:
+                LINKS_CLEANED.inc()
                 # Replace only the first occurrence to prevent content injection
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
