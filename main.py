@@ -1,24 +1,21 @@
 import asyncio
 import os
 import re
-import httpx
 import discord
+import subprocess
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink Discord Bot - Diagnostic Edition
-# Designed to track exactly where links are failing.
+# Purelink Discord Bot - Terminal Stealth Edition
+# Uses the server's own 'curl' to bypass Cloudflare blocks.
 
 load_dotenv()
 
 UNWRAP_DOMAINS = [
-    "mavely.app", "joinmavely.com", "mavelylife.com", "mavelyinfluencer.com",
-    "mavely.app.link", "go.mavely.app", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
-    "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com",
-    "ojrq.net", "sjv.io", "rstyle.me"
+    "mavely", "joinmavely", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
+    "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId="]
-REDIRECT_KEYS = ["return", "url", "dest", "u", "q"]
 SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price', 'sprefix']
 
 intents = discord.Intents.default()
@@ -26,52 +23,43 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    print(f"[DEBUG] Starting unwrap for: {url}")
-    current_url = url
-    async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as httpx_client:
-        for hop in range(1, 11):
-            try:
-                # 1. Quick Peek
-                p = urlparse(current_url)
-                qs = parse_qs(p.query)
-                for key in REDIRECT_KEYS:
-                    if key in qs:
-                        potential = unquote(qs[key][0])
-                        if potential.startswith("http"):
-                            print(f"[DEBUG] Hop {hop} (Peeking): Found hidden URL in query params: {potential}")
-                            current_url = potential
-                            break
-                
-                # 2. HTTP Request
-                resp = await httpx_client.get(current_url, headers={"User-Agent": "Mozilla/5.0"})
-                print(f"[DEBUG] Hop {hop} (Resolved): Status {resp.status_code} -> {resp.url}")
-                current_url = str(resp.url)
-                
-                # 3. Meta Refresh
-                meta = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
-                if meta:
-                    print(f"[DEBUG] Hop {hop} (Meta): Found refresh target: {meta.group('url')}")
-                    current_url = meta.group("url")
-                    continue
-
-                # Stop if it's no longer a known tracker
-                if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url.lower() for kw in TRACKING_KEYWORDS):
-                    print(f"[DEBUG] Destination reached: {current_url}")
-                    break
-            except Exception as e:
-                print(f"[DEBUG] Unwrap error at hop {hop}: {e}")
-                break
+    """Uses the system's curl command to follow redirects stealthily."""
+    print(f"[DEBUG] Unrolling via System Curl: {url}")
     
-    # 4. Final Purity
-    p = urlparse(current_url)
+    try:
+        # Use curl -L (follow) -I (head) -s (silent) to find the final URL
+        # We mimic a real Chrome browser
+        cmd = [
+            "curl", "-L", "-s", "-o", "/dev/null", "-w", "%{url_effective}",
+            "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            url
+        ]
+        
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        
+        final_url = stdout.decode().strip() if stdout else url
+        print(f"[DEBUG] Curl resolved to: {final_url}")
+        
+    except Exception as e:
+        print(f"[ERROR] Curl failed: {e}")
+        final_url = url
+
+    # Apply Purity Logic
+    p = urlparse(final_url)
     if any(k in p.path for k in ['/s', '/search']) or 'k=' in p.query:
         qs = parse_qs(p.query)
         clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
-        print(f"[DEBUG] Final Clean (Search): Stripping trackers...")
         return urlunparse((p.scheme, p.netloc, p.path, '', urlencode(clean_qs, doseq=True), ''))
     else:
-        print(f"[DEBUG] Final Clean (Product): Total strip...")
-        return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+        if p.scheme and p.netloc:
+            # Total strip for product pages
+            return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+        return final_url
 
 @client.event
 async def on_ready():
@@ -79,35 +67,30 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    print(f"[DEBUG] Heartbeat: Message from {message.author}")
     if message.author.bot: return
 
-    # Better URL Regex
     urls = re.findall(r'https?://[^\s<>"]+', message.content)
     if not urls: return
 
+    print(f"[DEBUG] Heartbeat: Processing {len(urls)} link(s) from {message.author}")
     cleaned_content = message.content
     any_cleaned = False
 
     for url in urls:
-        url_clean = url.rstrip('.,!?;:')
-        print(f"[DEBUG] Found URL: {url_clean}")
-        
-        is_tracking = any(kw in url_clean.lower() for kw in TRACKING_KEYWORDS)
-        is_shortener = any(d in url_clean for d in UNWRAP_DOMAINS)
+        # Check if it's a known affiliate domain or has tracking
+        is_tracking = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
+        is_affiliate = any(d in url.lower() for d in UNWRAP_DOMAINS)
 
-        if is_tracking or is_shortener:
-            print(f"[DEBUG] Link needs cleaning. Unwrapping...")
-            new_url = await unwrap_link(url_clean)
-            if new_url != url_clean:
-                cleaned_content = cleaned_content.replace(url_clean, new_url)
+        if is_tracking or is_affiliate:
+            new_url = await unwrap_link(url)
+            
+            # Repost if the link changed OR if it's a known affiliate link 
+            # (We always want to "clean" affiliates to show they were processed)
+            if new_url != url or is_affiliate:
+                cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
-                print(f"[DEBUG] Cleaned Result: {new_url}")
-            else:
-                print(f"[DEBUG] No changes found during unwrap.")
 
     if any_cleaned:
-        print(f"[DEBUG] Attempting to send cleaned message...")
         try:
             webhooks = await message.channel.webhooks()
             webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
@@ -121,9 +104,7 @@ async def on_message(message):
                 allowed_mentions=discord.AllowedMentions.none()
             )
             await message.delete()
-            print(f"[DEBUG] Message successfully replaced!")
         except Exception as e:
-            print(f"[ERROR] Final Step Failed: {e}")
             await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
 
 if __name__ == '__main__':
