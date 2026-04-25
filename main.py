@@ -3,6 +3,7 @@ import os
 import re
 import httpx
 import discord
+import random
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from dotenv import load_dotenv
 from unalix import clear_url
@@ -23,13 +24,12 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "af
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
-# High-fidelity Headers
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-}
+# High-fidelity Human Headers
+HUMAN_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+]
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -38,12 +38,12 @@ async def unwrap_link(url: str) -> str:
     """Follows redirects with deep stealth and advanced regex scraping for 403 bypass."""
     
     final_url = url
+    # We explicitly DISABLE http2 here as some Cloudflare configs block the httpx http2 fingerprint
     async with httpx.AsyncClient(
         follow_redirects=True, 
         max_redirects=15, 
-        headers=HEADERS, 
         cookies=httpx.Cookies(),
-        http2=True,
+        http2=False, 
         timeout=15.0
     ) as httpx_client:
         hops = 0
@@ -52,19 +52,26 @@ async def unwrap_link(url: str) -> str:
         
         while hops < 15:
             try:
-                custom_headers = HEADERS.copy()
+                headers = {
+                    "User-Agent": random.choice(HUMAN_AGENTS),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "cross-site",
+                }
                 if hops > 0:
-                    custom_headers["Referer"] = last_url
+                    headers["Referer"] = last_url
                 
-                response = await httpx_client.get(current_url, headers=custom_headers)
+                response = await httpx_client.get(current_url, headers=headers)
                 
-                # If we get a 403 or even a successful 200, check for hidden URLs in the page source
-                # Some affiliate sites don't redirect but just load a "Jump" page
+                # Check for Meta Refresh / JS redirectors even if 200 or 403
+                # (Some bot-blocks still include the target URL in a JS variable)
                 patterns = [
                     r'window\.location\.replace\(["\'](?P<url>https?://[^"\']+)["\']\)',
                     r'window\.location\.href\s*=\s*["\'](?P<url>https?://[^"\']+)["\']',
                     r'content=["\']\d+;\s*url=(?P<url>https?://[^"\']+)["\']',
-                    r'var\s+targetUrl\s*=\s*["\'](?P<url>https?://[^"\']+)["\']'
                 ]
                 
                 found_hidden = False
@@ -72,7 +79,6 @@ async def unwrap_link(url: str) -> str:
                     match = re.search(pattern, response.text, re.I)
                     if match:
                         current_url = match.group("url")
-                        print(f"[DEBUG] Found hidden URL: {current_url}")
                         found_hidden = True
                         break
                 
@@ -80,8 +86,8 @@ async def unwrap_link(url: str) -> str:
                     hops += 1
                     continue
 
-                if response.status_code == 403:
-                    print(f"[DEBUG] Blocked at {current_url}")
+                if response.status_code != 200 and response.status_code != 301 and response.status_code != 302:
+                    print(f"[DEBUG] Stop at {current_url} (Status {response.status_code})")
                     break
 
                 last_url = current_url
@@ -104,7 +110,6 @@ async def unwrap_link(url: str) -> str:
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
         return clear_url(final_url)
     else:
-        # Total Purity: Ensure we have at least a scheme and netloc before stripping
         if p.scheme and p.netloc:
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
