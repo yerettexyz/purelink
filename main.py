@@ -32,8 +32,7 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
-intents = discord.Intents.default()
-intents.message_content = True
+intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
