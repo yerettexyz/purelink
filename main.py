@@ -5,10 +5,9 @@ import httpx
 import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
-from unalix import clear_url
 
-# Purelink Discord Bot - Hardened Simple Edition
-# No metrics, no decorators, just cleaning.
+# Purelink Discord Bot - Diagnostic Edition
+# Designed to track exactly where links are failing.
 
 load_dotenv()
 
@@ -18,83 +17,97 @@ UNWRAP_DOMAINS = [
     "link.lordofsavings.com", "link.tdgdeals.com", "pricedoffers.com",
     "ojrq.net", "sjv.io", "rstyle.me"
 ]
-TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag="]
+TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId="]
 REDIRECT_KEYS = ["return", "url", "dest", "u", "q"]
-SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price']
+SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price', 'sprefix']
 
-# Reduced Intents to avoid portal mismatch crashes
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects with deep query peeking."""
+    print(f"[DEBUG] Starting unwrap for: {url}")
     current_url = url
     async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as httpx_client:
-        for _ in range(10):
+        for hop in range(1, 11):
             try:
-                # Peek for hidden URLs in query params (Bypass Cloudflare)
+                # 1. Quick Peek
                 p = urlparse(current_url)
                 qs = parse_qs(p.query)
                 for key in REDIRECT_KEYS:
                     if key in qs:
                         potential = unquote(qs[key][0])
                         if potential.startswith("http"):
+                            print(f"[DEBUG] Hop {hop} (Peeking): Found hidden URL in query params: {potential}")
                             current_url = potential
                             break
                 
-                # Standard resolution
+                # 2. HTTP Request
                 resp = await httpx_client.get(current_url, headers={"User-Agent": "Mozilla/5.0"})
+                print(f"[DEBUG] Hop {hop} (Resolved): Status {resp.status_code} -> {resp.url}")
                 current_url = str(resp.url)
                 
-                # Meta refresh
+                # 3. Meta Refresh
                 meta = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
                 if meta:
+                    print(f"[DEBUG] Hop {hop} (Meta): Found refresh target: {meta.group('url')}")
                     current_url = meta.group("url")
                     continue
 
-                if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
+                # Stop if it's no longer a known tracker
+                if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url.lower() for kw in TRACKING_KEYWORDS):
+                    print(f"[DEBUG] Destination reached: {current_url}")
                     break
-            except:
+            except Exception as e:
+                print(f"[DEBUG] Unwrap error at hop {hop}: {e}")
                 break
     
-    # Final Purity Logic
+    # 4. Final Purity
     p = urlparse(current_url)
     if any(k in p.path for k in ['/s', '/search']) or 'k=' in p.query:
-        # Search page: Keep keywords
         qs = parse_qs(p.query)
-        clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS}
+        clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
+        print(f"[DEBUG] Final Clean (Search): Stripping trackers...")
         return urlunparse((p.scheme, p.netloc, p.path, '', urlencode(clean_qs, doseq=True), ''))
     else:
-        # Product page: Total strip
+        print(f"[DEBUG] Final Clean (Product): Total strip...")
         return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
 @client.event
 async def on_ready():
-    print(f'>>> SUCCESS: Purelink is logged in as {client.user}')
-    print(f'>>> Ensure "Message Content Intent" is ON in the Discord Portal!')
+    print(f'>>> SUCCESS: Purelink is ready as {client.user}')
 
 @client.event
 async def on_message(message):
-    print(f"[DEBUG] Heartbeat: Got message from {message.author}")
-    if message.author.bot:
-        return
+    print(f"[DEBUG] Heartbeat: Message from {message.author}")
+    if message.author.bot: return
 
-    urls = re.findall(r'https?://[^\s]+', message.content)
-    if not urls:
-        return
+    # Better URL Regex
+    urls = re.findall(r'https?://[^\s<>"]+', message.content)
+    if not urls: return
 
     cleaned_content = message.content
     any_cleaned = False
 
     for url in urls:
-        if any(d in url for d in UNWRAP_DOMAINS) or any(kw in url for kw in TRACKING_KEYWORDS):
-            new_url = await unwrap_link(url)
-            if new_url != url:
-                cleaned_content = cleaned_content.replace(url, new_url)
+        url_clean = url.rstrip('.,!?;:')
+        print(f"[DEBUG] Found URL: {url_clean}")
+        
+        is_tracking = any(kw in url_clean.lower() for kw in TRACKING_KEYWORDS)
+        is_shortener = any(d in url_clean for d in UNWRAP_DOMAINS)
+
+        if is_tracking or is_shortener:
+            print(f"[DEBUG] Link needs cleaning. Unwrapping...")
+            new_url = await unwrap_link(url_clean)
+            if new_url != url_clean:
+                cleaned_content = cleaned_content.replace(url_clean, new_url)
                 any_cleaned = True
+                print(f"[DEBUG] Cleaned Result: {new_url}")
+            else:
+                print(f"[DEBUG] No changes found during unwrap.")
 
     if any_cleaned:
+        print(f"[DEBUG] Attempting to send cleaned message...")
         try:
             webhooks = await message.channel.webhooks()
             webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
@@ -108,13 +121,11 @@ async def on_message(message):
                 allowed_mentions=discord.AllowedMentions.none()
             )
             await message.delete()
+            print(f"[DEBUG] Message successfully replaced!")
         except Exception as e:
-            await message.channel.send(f"Cleaned link:\n{cleaned_content}")
-            print(f"[ERROR] Webhook/Delete failed: {e}")
+            print(f"[ERROR] Final Step Failed: {e}")
+            await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
 
 if __name__ == '__main__':
     token = os.getenv('TOKEN')
-    if not token:
-        print("ERROR: TOKEN not found in .env file!")
-    else:
-        client.run(token)
+    client.run(token)
