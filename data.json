@@ -2171,6 +2171,8 @@
         "mautic.com",
         "mavely",
         "mavelyinfluencer.com",
+        "mavelyinfluencer.com",
+        "mavelylife.com",
         "max.i12.de",
         "maximiser.net",
         "maxonclick.com",
@@ -2702,6 +2704,7 @@
         "realtracker.com",
         "rebelhen.com",
         "rebelswing.com",
+        "rebrand.ly",
         "rec5.visualwebsiteoptimizer.com",
         "recapture.io",
         "receptivereaction.com",
@@ -3538,9 +3541,7 @@
         "zonewedgeshaft.com",
         "zpu.samsungelectronics.com",
         "zqtk.net",
-        "zzhc.vnet.cn",
-        "rebrand.ly"
-
+        "zzhc.vnet.cn"
     ],
     "tracking_keywords": [
         "utm_",
@@ -3554,7 +3555,6 @@
         "xcm_",
         "tdp",
         "CMP"
-
     ],
     "peek_keys": [
         "return",
