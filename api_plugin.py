@@ -1,8 +1,29 @@
-import json
-import asyncio
-import os
-import time
 import threading
+import discord
+import os
+import json
+import time
+
+# --- Non-Invasive Guard (Monkey Patch) ---
+# This intercepts messages before they reach main.py without touching main.py
+IGNORE_FILE = 'ignore.json'
+original_dispatch = discord.Client.dispatch
+
+def patched_dispatch(self, event_name, *args, **kwargs):
+    if event_name == 'message':
+        try:
+            message = args[0]
+            if os.path.exists(IGNORE_FILE):
+                with open(IGNORE_FILE, 'r') as f:
+                    data = json.load(f)
+                if message.author.id in data.get('ignored_users', []) or \
+                   message.channel.id in data.get('ignored_channels', []):
+                    return # Drop the message before main.py sees it
+        except: pass
+    return original_dispatch(self, event_name, *args, **kwargs)
+
+discord.Client.dispatch = patched_dispatch
+
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from prometheus_client import start_http_server
 
