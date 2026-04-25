@@ -109,6 +109,10 @@ intents.message_content = True
 MAX_URLS_PER_MESSAGE = 5
 
 class PurelinkBot(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.processed_cache = {} # msg_id: timestamp
+
     async def setup_hook(self):
         log(f"SUCCESS: Logged in as {self.user}")
         
@@ -258,6 +262,17 @@ class PurelinkBot(discord.Client):
 
     async def on_message(self, message):
         if message.author.bot: return
+        
+        # Anti-Duplicate Multi-Brain Protection
+        now = time.time()
+        if message.id in self.processed_cache:
+            return
+        self.processed_cache[message.id] = now
+        
+        # Periodic Cache Cleanup (Every 100 messages)
+        if len(self.processed_cache) > 100:
+            self.processed_cache = {k: v for k, v in self.processed_cache.items() if now - v < 30}
+
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
