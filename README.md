@@ -8,6 +8,7 @@ Purelink is a bot designed to detect, unwrap, and clean tracking links, extracti
 ## 🛡️ Quick Start
 
 **[Add Purelink to Discord](https://yerette.xyz/purelink)**
+
 **[View Stats & Live Status](https://purelink-status.pages.dev)**
 
 ## Key Features
