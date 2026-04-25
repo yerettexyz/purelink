@@ -28,6 +28,7 @@ with open(PID_FILE, "w") as f:
 # --- Metrics ---
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
+LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total links removed (banned)')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = time.time()
 
@@ -70,7 +71,7 @@ class PurelinkBot(discord.Client):
             metrics = {
                 'LINKS_CLEANED': LINKS_CLEANED,
                 'LINKS_DETECTED': LINKS_DETECTED,
-                'LINKS_NUKED': Counter('dummy_nuke', 'nuke'),
+                'LINKS_NUKED': LINKS_NUKED,
                 'HOPS_TOTAL': Counter('dummy_hops', 'hops'),
                 'ERRORS_TOTAL': Counter('dummy_err', 'err'),
                 'START_TIME': START_TIME,
@@ -150,7 +151,7 @@ class PurelinkBot(discord.Client):
             if is_banned:
                 cleaned_content = cleaned_content.replace(url, "", 1)
                 any_cleaned = True
-                LINKS_CLEANED.inc()
+                LINKS_NUKED.inc()
             elif new_url and new_url != u_clean:
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
