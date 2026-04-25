@@ -36,6 +36,16 @@ CONFIG = {
     "unsupported_domains": ["rebrandly.com", "rebrand.ly"]
 }
 
+# Dynamically load the thousands of custom domains from data.json
+try:
+    with open('data.json', 'r', encoding='utf-8') as f:
+        custom_data = json.load(f)
+        if "unwrap_domains" in custom_data:
+            CONFIG["unwrap_domains"].extend(custom_data["unwrap_domains"])
+except Exception as e:
+    log(f"Warning: Could not merge data.json - {e}")
+
+
 intents = discord.Intents.default()
 intents.message_content = True
 
