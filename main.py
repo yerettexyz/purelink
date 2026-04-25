@@ -117,20 +117,13 @@ class PurelinkBot(discord.Client):
         activity = discord.Activity(type=discord.ActivityType.watching, name="for tracking links")
         await self.change_presence(activity=activity)
         
-        # Start Prometheus metrics server
-        try:
-            start_http_server(METRICS_PORT)
-            log(f"METRICS: Server listening on port {METRICS_PORT}")
-        except Exception as e:
-            log(f"METRICS ERROR: Failed to start server: {e}")
-
-        # Start Stats API (Private Plugin)
+        # Start Private Monitoring Bridge (Prometheus + JSON API)
         if API_PLUGIN:
             try:
-                threading.Thread(target=API_PLUGIN.run_stats_server, args=(self,), daemon=True).start()
-                log(f"API: Stats server started via plugin.")
+                threading.Thread(target=API_PLUGIN.initialize_monitoring, args=(self,), daemon=True).start()
+                log("PLUGIN: Private Monitoring Bridge initialized.")
             except Exception as e:
-                log(f"API ERROR: Failed to start server: {e}")
+                log(f"PLUGIN ERROR: Failed to start monitoring: {e}")
 
         # Start uptime tracker
         self.loop.create_task(self.update_uptime())
