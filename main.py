@@ -13,7 +13,7 @@ load_dotenv()
 UNWRAP_DOMAINS = [
     "mavely", "joinmavely", "mavelyinfluencer.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
     "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io", "rstyle.me",
-    "link.profitlounge.us", "howl.link", "jdoqocy.com"
+    "link.profitlounge.us", "howl.link", "jdoqocy.com", "sylikes.com", "bizrate.com", "skimresources.com"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId="]
 # These keys usually hide the final URL in the query string
