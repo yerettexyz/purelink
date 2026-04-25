@@ -14,7 +14,12 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Licensed under LGPL-3.0
 
 # Purelink Configuration
-UNWRAP_DOMAINS = ["mavely.app", "joinmavely.com", "mavelylife.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com"]
+# Explicitly listing subdomains that Mavely uses to ensure they trigger the unwrapper
+UNWRAP_DOMAINS = [
+    "mavely.app", "joinmavely.com", "mavelylife.com", 
+    "mavely.app.link", "go.mavely.app", 
+    "amzn.to", "a.co", "bit.ly", "tinyurl.com"
+]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid"]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
@@ -22,8 +27,19 @@ FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
 # Regex for Meta Refresh: <meta http-equiv="refresh" content="0; url=https://example.com">
 RE_META_REFRESH = re.compile(r'<\s*meta[^>]+http-equiv\s*=\s*["\']refresh["\'][^>]+content\s*=\s*["\']\d+;\s*url=(?P<url>https?://[^"\']+)["\']', re.I)
 
+# High-fidelity Browser Headers to bypass bot detection
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
 }
 
 intents = discord.Intents.default()
@@ -43,37 +59,50 @@ async def count_servers_members():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects (HTTP and Meta Refresh) and strips ALL tracking parameters."""
+    """Follows redirects (HTTP and Meta Refresh) with stealth to bypass bot filters."""
     
-    async with httpx.AsyncClient(follow_redirects=True, max_redirects=10, headers=HEADERS) as httpx_client:
+    # We use a cookies jar to maintain session state through redirects (often required for affiliate links)
+    async with httpx.AsyncClient(
+        follow_redirects=True, 
+        max_redirects=10, 
+        headers=HEADERS, 
+        cookies=httpx.Cookies(),
+        http2=True, # Modern sites often check for HTTP2
+        timeout=15.0
+    ) as httpx_client:
         hops = 0
+        current_url = url
         while hops < 10:
-            parsed = urlparse(url)
-            should_unwrap = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
+            parsed = urlparse(current_url)
             
-            if not should_unwrap and hops > 0:
-                # If we've already hopped and are now on a non-unwrap domain, we probably hit the destination
-                break
-                
+            # If we've already hopped to a real store, check if we should stop
+            is_generic_shortener = any(d in parsed.netloc for d in ["bit.ly", "tinyurl.com"])
+            is_aff_domain = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
+            
+            # If we land on a store but there's a meta refresh, we keep going
             try:
-                response = await httpx_client.get(url, timeout=10.0)
-                url = str(response.url)
+                response = await httpx_client.get(current_url)
+                current_url = str(response.url)
                 
                 # Check for Meta Refresh in HTML
                 match = RE_META_REFRESH.search(response.text)
                 if match:
-                    url = match.group("url")
+                    current_url = match.group("url")
                     hops += 1
-                    continue # Follow the meta refresh
+                    continue 
                 else:
-                    # No meta refresh and httpx already followed 30x redirects
-                    break
-            except Exception:
+                    # If we're off the unwrap list and no meta refresh, we're done
+                    if not is_aff_domain:
+                        break
+            except Exception as e:
+                print(f"Unwrap error: {e}")
                 break
             hops += 1
+        
+        final_url = current_url
 
     # Total Purity: Strip ALL query parameters from the final resolved URL
-    p = urlparse(url)
+    p = urlparse(final_url)
     return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
 @client.event
@@ -97,7 +126,7 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        # Check against unalix cleaning and our custom keywords/domains
+        # Check against pure unalix cleaning and our custom domains/keywords
         standard_cleaned = clear_url(url).strip('&')
         should_unwrap = any(domain in url for domain in UNWRAP_DOMAINS)
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
@@ -112,11 +141,9 @@ async def on_message(message):
     if any_cleaned:
         permissions = message.channel.permissions_for(message.guild.me)
         if not (permissions.manage_messages and permissions.manage_webhooks):
-            # Fallback to simple reply
             await message.reply(f"I found tracking links! Here is the clean version:\n{cleaned_content}", mention_author=False)
             return
 
-        # Prepare webhook
         try:
             webhooks = await message.channel.webhooks()
             webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
