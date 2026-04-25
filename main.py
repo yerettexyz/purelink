@@ -11,6 +11,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- Instance Lock ---
+PID_FILE = "bot.pid"
+if os.path.exists(PID_FILE):
+    try:
+        with open(PID_FILE, "r") as f:
+            old_pid = int(f.read().strip())
+        os.kill(old_pid, 0) # Check if process exists
+        print(f"FATAL ERROR: Another instance is running (PID {old_pid}). Exit.", flush=True)
+        os._exit(1)
+    except (ProcessLookupError, ValueError):
+        pass # Process is dead, continue
+with open(PID_FILE, "w") as f:
+    f.write(str(os.getpid()))
+
 # --- Metrics ---
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
