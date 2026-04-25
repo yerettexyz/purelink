@@ -9,13 +9,13 @@ def register_commands(tree):
     @tree.command(name="purelink", description="Show Purelink information")
     async def purelink_info(interaction: discord.Interaction):
         embed = discord.Embed(
-            title="Purelink Bot",
+            title="Purelink 🛡️",
             description="Purelink is a high-performance URL sanitization bot that restores privacy by stripping affiliate tracking and redirect wrappers.",
             color=0x3498db # Simple Blue
         )
-        embed.add_field(name="Source Code", value="[View GitHub Repository](https://github.com/yerettexyz/purelink)", inline=False)
-        embed.add_field(name="Network Status", value="[View Live Status Page](https://purelink-status.pages.dev)", inline=False)
-        embed.set_footer(text="Purelink v1.0.0 • by Yerette Studio")
+        embed.add_field(name="Source Code", value="[GitHub Repository](https://github.com/yerettexyz/purelink)", inline=False)
+        embed.add_field(name="Network Status", value="[Live Status Page](https://purelink-status.pages.dev)", inline=False)
+        embed.set_footer(text="Purelink v1.1.0")
         
         logo_path = "IMG_9915.webp"
         if os.path.exists(logo_path):
