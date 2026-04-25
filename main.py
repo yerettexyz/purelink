@@ -84,13 +84,17 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url):
         current_url = url
         for _ in range(5):
-            # Only output the URL, nothing else
-            cmd = ["curl", "-sI", "-L", "-m", "5", "-o", "/dev/null", "-w", "%{url_effective}", current_url]
+            # NO '-I' here to keep STDOUT clean of headers
+            cmd = ["curl", "-Ls", "-o", "/dev/null", "-m", "5", "-w", "%{url_effective}", current_url]
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             stdout, _ = await proc.communicate()
             if not stdout: break
+            
             new_url = stdout.decode().strip()
-            if not new_url.startswith("http"): break
+            # Safety: If curl fails to give a URL, keep the current one
+            if not new_url or not new_url.startswith("http"): 
+                break
+                
             if new_url == current_url: break
             current_url = new_url
         return current_url
