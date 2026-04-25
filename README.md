@@ -5,7 +5,7 @@
 
 Purelink is a bot designed to detect, unwrap, and clean tracking links, extracting destination URLs from affiliate redirect chains.
 
-## 🚀 Quick Start
+## 🛡️ Quick Start
 
 **[Add Purelink to Discord](https://yerette.xyz/purelink)**
 
