@@ -28,6 +28,7 @@ def load_config():
         print(f"CRITICAL: Failed to load data.json: {e}")
         return {
             "unwrap_domains": ["amzn.to", "bit.ly"],
+            "unsupported_domains": ["walmart.com", "mavelylife.com"],
             "tracking_keywords": ["utm_", "ref="],
             "peek_keys": ["url"],
             "search_keepers": ["k", "q"]
@@ -160,8 +161,9 @@ class PurelinkBot(discord.Client):
         domain = urlparse(url).netloc.lower()
         final_url = url
 
-        # Only resolve redirects for known shorteners/affiliates
-        if any(d in domain for d in CONFIG["unwrap_domains"]):
+        # Only resolve redirects for known shorteners/affiliates that aren't on the blocked list
+        is_unsupported = any(d in domain for d in CONFIG.get("unsupported_domains", []))
+        if any(d in domain for d in CONFIG["unwrap_domains"]) and not is_unsupported:
             try:
                 final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
             except Exception as e:

@@ -2170,7 +2170,6 @@
         "matomo.crossiety.app",
         "mautic.com",
         "mavely",
-        "mavelyinfluencer.com",
         "max.i12.de",
         "maximiser.net",
         "maxonclick.com",
@@ -3576,5 +3575,14 @@
         "low-price",
         "high-price",
         "sprefix"
+    ],
+    "unsupported_domains": [
+        "dealshacks.com",
+        "inflcm.com",
+        "mavelyinfluencer.com",
+        "mavelylife.com",
+        "theblogcm.com",
+        "walmart.com",
+        "walmrt.us"
     ]
 }
