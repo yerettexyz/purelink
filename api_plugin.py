@@ -75,7 +75,9 @@ def patched_dispatch(self, event_name, *args, **kwargs):
     if event_name == 'interaction':
         interaction = args[0]
         if hasattr(self, 'tree'):
+            # Manually trigger the tree to handle the interaction
             self.loop.create_task(self.tree.on_interaction(interaction))
+            # DO NOT return here, let original dispatch potentially handle other things if needed
 
     # 3. Handle Message Filtering (The "Ignore" System)
     if event_name == 'message':
@@ -83,8 +85,8 @@ def patched_dispatch(self, event_name, *args, **kwargs):
             message = args[0]
             if not message.author.bot and os.path.exists(IGNORE_FILE):
                 with open(IGNORE_FILE, 'r') as f: data = json.load(f)
-                if message.author.id in data.get('ignored_users', []) or \
-                   message.channel.id in data.get('ignored_channels', []):
+                if str(message.author.id) in [str(i) for i in data.get('ignored_users', [])] or \
+                   str(message.channel.id) in [str(i) for i in data.get('ignored_channels', [])]:
                     return # Block from main.py
         except: pass
 
