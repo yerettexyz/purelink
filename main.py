@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 UNWRAP_DOMAINS = [
-    "mavely", "joinmavely", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
+    "mavely", "joinmavely", "mavelyinfluencer.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
     "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io", "rstyle.me"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId="]
