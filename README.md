@@ -1,7 +1,5 @@
 <h1 align="center">Purelink Discord Bot</h1>
 <p align="center">
-	<img src="https://raw.githubusercontent.com/danielzting/clearurls-discord-bot/master/docs/demo.png" width="128px" height="128px" style="border-radius: 10px;"/>
-	<br>
 	<b>Advanced link purification for clean, affiliate-free conversations.</b>
 </p>
 
