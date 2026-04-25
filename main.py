@@ -267,7 +267,8 @@ class PurelinkBot(discord.Client):
         any_cleaned = False
 
         for url in urls:
-            u_clean = url.rstrip('.,!?;:')
+            # Better stripping for common chat punctuation/markdown
+            u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
 
             # 1. Check for banned domains (Nuke entirely)
@@ -288,22 +289,29 @@ class PurelinkBot(discord.Client):
                 any_cleaned = True
 
         if any_cleaned:
+            # Prevent Discord 400 ERROR on empty content (if all links nuked)
+            if not cleaned_content.strip():
+                cleaned_content = "-# *Banned link(s) removed.*"
+
             try:
                 webhooks = await message.channel.webhooks()
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
                 if not webhook:
+                    # Discord limit is 15 webhooks per channel
                     webhook = await message.channel.create_webhook(name="Purelink Cleaner")
 
                 await webhook.send(
                     content=cleaned_content + "\n\n-# *Link cleaned by Purelink*",
                     username=message.author.display_name,
-                    avatar_url=message.author.display_avatar.url,
+                    avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
                 )
                 await message.delete()
             except Exception as e:
-                log(f"EVENT ERROR: Repost failed: {e}")
-                await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
+                log(f"EVENT ERROR: Repost failed (Check permissions/webhook limits): {e}")
+                # Fallback: Send a message if webhook/delete fails
+                if cleaned_content.strip():
+                    await message.channel.send(f"**Cleaned link(s):**\n{cleaned_content}")
 
 if __name__ == '__main__':
     bot = PurelinkBot(intents=intents)
