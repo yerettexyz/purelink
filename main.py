@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import time
+
 # --- Metrics ---
 METRICS_PORT = 8000
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
@@ -19,7 +21,7 @@ LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total banned links removed'
 HOPS_TOTAL = Counter('purelink_hops_total', 'Total redirect hops performed')
 ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
-START_TIME = asyncio.get_event_loop().time()
+START_TIME = time.time()
 
 def log(msg):
     print(f"[BOT] {msg}", flush=True)
@@ -115,7 +117,17 @@ class PurelinkBot(discord.Client):
         # Start Private Monitoring Bridge (Prometheus + JSON API)
         if API_PLUGIN:
             try:
-                threading.Thread(target=API_PLUGIN.initialize_monitoring, args=(self,), daemon=True).start()
+                # Pass metrics as a dictionary to avoid circular imports
+                metrics_data = {
+                    'LINKS_CLEANED': LINKS_CLEANED,
+                    'LINKS_DETECTED': LINKS_DETECTED,
+                    'LINKS_NUKED': LINKS_NUKED,
+                    'HOPS_TOTAL': HOPS_TOTAL,
+                    'ERRORS_TOTAL': ERRORS_TOTAL,
+                    'START_TIME': START_TIME,
+                    'PORT_PROM': METRICS_PORT
+                }
+                threading.Thread(target=API_PLUGIN.initialize_monitoring, args=(metrics_data,), daemon=True).start()
                 log("PLUGIN: Private Monitoring Bridge initialized.")
             except Exception as e:
                 log(f"PLUGIN ERROR: Failed to start monitoring: {e}")
@@ -125,7 +137,7 @@ class PurelinkBot(discord.Client):
 
     async def update_uptime(self):
         while not self.is_closed():
-            BOT_UPTIME.set(asyncio.get_event_loop().time() - START_TIME)
+            BOT_UPTIME.set(time.time() - START_TIME)
             await asyncio.sleep(60)
 
     async def _resolve_chain(self, url: str) -> str:
