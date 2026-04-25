@@ -3,7 +3,7 @@ import os
 import re
 import httpx
 import discord
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from dotenv import load_dotenv
 from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
@@ -13,20 +13,17 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 # Modifications Copyright (c) 2024 psalm2517 (Purelink Team)
 # Licensed under LGPL-3.0
 
-# Purelink Configuration
+# Configuration
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
     "amzn.to", "a.co", "bit.ly", "tinyurl.com"
 ]
 TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid", "tag="]
+SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
-FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
 
-# Regex for Meta Refresh: <meta http-equiv="refresh" content="0; url=https://example.com">
-RE_META_REFRESH = re.compile(r'<\s*meta[^>]+http-equiv\s*=\s*["\']refresh["\'][^>]+content\s*=\s*["\']\d+;\s*url=(?P<url>https?://[^"\']+)["\']', re.I)
-
-# High-fidelity Browser Headers to bypass bot detection
+# High-fidelity Browser Headers
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -39,20 +36,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-process_message_time = Summary('process_message_time', 'Time spent processing message')
-messages = Counter('messages', 'Total number of messages processed')
-cleaned_messages = Counter('cleaned_messages', 'Number of messages with tracking links cleaned')
-servers = Gauge('servers', 'Number of servers the bot is in')
-members = Gauge('members', 'Combined member count of all servers the bot is in')
-
-async def count_servers_members():
-    while True:
-        servers.set(len(client.guilds))
-        members.set(sum([guild.member_count for guild in client.guilds]))
-        await asyncio.sleep(60)
-
 async def unwrap_link(url: str) -> str:
-    """Follows redirects and cleans appropriately for product vs search pages."""
+    """Follows redirects and cleans with deep inspection of search vs product pages."""
     
     final_url = url
     async with httpx.AsyncClient(
@@ -61,55 +46,59 @@ async def unwrap_link(url: str) -> str:
         headers=HEADERS, 
         cookies=httpx.Cookies(),
         http2=True,
-        timeout=12.0
+        timeout=15.0
     ) as httpx_client:
         hops = 0
         current_url = url
         while hops < 10:
             parsed = urlparse(current_url)
-            should_unwrap = any(domain in parsed.netloc for domain in UNWRAP_DOMAINS)
-            
             try:
                 response = await httpx_client.get(current_url)
                 current_url = str(response.url)
                 
-                # Check for Meta Refresh
-                match = RE_META_REFRESH.search(response.text)
-                if match:
-                    current_url = match.group("url")
+                # Check for Meta Refresh in body
+                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
+                if meta_match and hops < 5:
+                    current_url = meta_match.group("url")
                     hops += 1
                     continue 
                 else:
-                    if not should_unwrap and hops > 0:
+                    # If we're off known shorteners and didn't redirect, we're likely done
+                    is_shortener = any(d in parsed.netloc for d in UNWRAP_DOMAINS)
+                    if not is_shortener:
                         break
-            except Exception:
+            except Exception as e:
+                print(f"[DEBUG] Resolution failed for {current_url}: {e}")
                 break
             hops += 1
         
         final_url = current_url
 
-    # Smart Purity Logic
+    # Smart Purity: Determine if it's a search page or a product page
     p = urlparse(final_url)
-    # Don't strip ALL params for search pages (Amazon /s or Google /search)
-    if p.path.endswith('/s') or '/search' in p.path:
-        return clear_url(final_url)
+    is_search = p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query
+    
+    if is_search:
+        # Precision cleaning for search pages: Strip trackers but KEEP valid search keywords
+        qs = parse_qs(p.query)
+        clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
+        
+        # If we have valid search terms, reconstruct the search URL
+        if clean_qs:
+            new_query = urlencode(clean_qs, doseq=True)
+            return urlunparse((p.scheme, p.netloc, p.path, '', new_query, ''))
+        else:
+            # If it's a search with no terms, let unalix try a general clean
+            return clear_url(final_url)
     else:
-        # Total Purity for everything else (Product pages)
+        # Total Purity for Product Pages: Strip ALL params
         return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
-@client.event
-async def on_ready():
-    await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
-    asyncio.create_task(count_servers_members())
-    print(f'Purelink is logged in as {client.user}')
-
-@process_message_time.time()
 @client.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    messages.inc()
     urls = URL_REGEX.findall(message.content)
     if not urls:
         return
@@ -123,17 +112,19 @@ async def on_message(message):
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
+            print(f"[DEBUG] Cleaning URL: {url}")
             new_url = await unwrap_link(url)
-            # If it's a known affiliate domain or search, we ALWAYS consider it "cleaned" 
-            # to ensure the webhook repost happens even if the URL didn't change much.
+            
+            # Repost if the link changed OR it was an affiliate domain we want to sanitize
             if new_url != url or should_unwrap:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
+                print(f"[DEBUG] -> Success: {new_url}")
 
     if any_cleaned:
         permissions = message.channel.permissions_for(message.guild.me)
         if not (permissions.manage_messages and permissions.manage_webhooks):
-            await message.reply(f"I found tracking links! Here is the clean version:\n{cleaned_content}", mention_author=False)
+            await message.reply(f"Link cleaned by Purelink:\n{cleaned_content}", mention_author=False)
             return
 
         try:
@@ -143,26 +134,17 @@ async def on_message(message):
                 webhook = await message.channel.create_webhook(name="Purelink Cleaner")
 
             await webhook.send(
-                content=cleaned_content + FOOTER_TEXT,
+                content=cleaned_content + "\n\n*Link cleaned by Purelink*",
                 username=message.author.display_name,
                 avatar_url=message.author.display_avatar.url,
                 allowed_mentions=discord.AllowedMentions.none()
             )
-            
             await message.delete()
-            cleaned_messages.inc()
-        except discord.HTTPException as e:
-            print(f"Error handling webhook or deletion: {e}")
+        except Exception as e:
+            print(f"[DEBUG] Webhook error: {e}")
 
 if __name__ == '__main__':
     load_dotenv()
     token = os.getenv('TOKEN')
-
-    if not token:
-        print("CRITICAL ERROR: No TOKEN found in .env file.")
-        exit(1)
-
-    # Use a default port if environment variable is missing
-    metrics_port = int(os.getenv('METRICS_PORT', 8000))
-    start_http_server(metrics_port)
+    start_http_server(int(os.getenv('METRICS_PORT', 8000)))
     client.run(token)
