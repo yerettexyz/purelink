@@ -23,23 +23,21 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "af
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
-# High-fidelity Mobile Headers (often bypasses stricter bot filters)
+# High-fidelity Headers
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
 }
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects with deep stealth and error handling for 403s."""
+    """Follows redirects with deep stealth and advanced regex scraping for 403 bypass."""
     
     final_url = url
-    # Use a session-like client to maintain cookies
     async with httpx.AsyncClient(
         follow_redirects=True, 
         max_redirects=15, 
@@ -54,42 +52,48 @@ async def unwrap_link(url: str) -> str:
         
         while hops < 15:
             try:
-                # Add Referer for every hop to look like a real user chain
                 custom_headers = HEADERS.copy()
                 if hops > 0:
                     custom_headers["Referer"] = last_url
                 
                 response = await httpx_client.get(current_url, headers=custom_headers)
                 
-                # Check for 403 - try to scrape the target from the body if possible
+                # If we get a 403 or even a successful 200, check for hidden URLs in the page source
+                # Some affiliate sites don't redirect but just load a "Jump" page
+                patterns = [
+                    r'window\.location\.replace\(["\'](?P<url>https?://[^"\']+)["\']\)',
+                    r'window\.location\.href\s*=\s*["\'](?P<url>https?://[^"\']+)["\']',
+                    r'content=["\']\d+;\s*url=(?P<url>https?://[^"\']+)["\']',
+                    r'var\s+targetUrl\s*=\s*["\'](?P<url>https?://[^"\']+)["\']'
+                ]
+                
+                found_hidden = False
+                for pattern in patterns:
+                    match = re.search(pattern, response.text, re.I)
+                    if match:
+                        current_url = match.group("url")
+                        print(f"[DEBUG] Found hidden URL: {current_url}")
+                        found_hidden = True
+                        break
+                
+                if found_hidden:
+                    hops += 1
+                    continue
+
                 if response.status_code == 403:
-                    print(f"[DEBUG] Mavely Blocked (403) at {current_url}")
-                    # Some sites include the target as a JS variable even on blocked/wait pages
-                    js_match = re.search(r'window\.location\.replace\(["\'](?P<url>https?://[^"\']+)["\']\)', response.text)
-                    if js_match:
-                        current_url = js_match.group("url")
-                        hops += 1
-                        continue
+                    print(f"[DEBUG] Blocked at {current_url}")
                     break
 
                 last_url = current_url
                 current_url = str(response.url)
                 
-                # Check for Meta Refresh in body
-                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
-                if meta_match:
-                    current_url = meta_match.group("url")
-                    hops += 1
-                    continue 
-
-                # If no more redirects and no more meta-refreshes, we're likely at the store
                 parsed_final = urlparse(current_url)
                 is_still_shortener = any(d in parsed_final.netloc for d in UNWRAP_DOMAINS)
                 if not is_still_shortener:
                     break
                     
             except Exception as e:
-                print(f"[DEBUG] Resolution error at hop {hops}: {e}")
+                print(f"[DEBUG] Error: {e}")
                 break
             hops += 1
         
@@ -100,7 +104,10 @@ async def unwrap_link(url: str) -> str:
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
         return clear_url(final_url)
     else:
-        return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+        # Total Purity: Ensure we have at least a scheme and netloc before stripping
+        if p.scheme and p.netloc:
+            return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+        return final_url
 
 @client.event
 async def on_ready():
@@ -126,16 +133,15 @@ async def on_message(message):
         is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
         if standard_cleaned != url.strip('&') or should_unwrap or is_tracking_kw:
-            print(f"[DEBUG] Processing Link: {url}")
+            print(f"[DEBUG] Processing: {url}")
             new_url = await unwrap_link(url)
             
             if new_url != url or should_unwrap:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
-                print(f"[DEBUG] -> Cleaned to: {new_url}")
+                print(f"[DEBUG] -> Final: {new_url}")
 
     if any_cleaned:
-        permissions = message.channel.permissions_for(message.guild.me)
         try:
             webhooks = await message.channel.webhooks()
             webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
@@ -150,7 +156,6 @@ async def on_message(message):
             )
             await message.delete()
         except Exception as e:
-            # Fallback to simple reply if webhook fails
             await message.reply(f"Link cleaned by Purelink:\n{cleaned_content}", mention_author=False)
             print(f"[DEBUG] Webhook error: {e}")
 
