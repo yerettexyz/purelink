@@ -83,15 +83,8 @@ class PurelinkBot(discord.Client):
                     clean_qs[k] = v
             
             clean_path = p.path
-            if "amazon." in p.netloc.lower():
-                clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
-                # Aggressively strip down to just the ASIN to remove ALL garbage
-                asin_match = re.search(r'(?:/dp/|/gp/product/|/exec/obidos/ASIN/|/product/)([a-zA-Z0-9]{10})', clean_path)
-                if asin_match:
-                    return f"https://{p.netloc}/dp/{asin_match.group(1)}"
-            
             new_query = urlencode(clean_qs, doseq=True)
-            return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
+            return urlunparse((p.scheme, p.netloc, clean_path, p.params, new_query, p.fragment))
         except: return url
 
     async def _resolve_chain(self, url):
@@ -152,7 +145,7 @@ class PurelinkBot(discord.Client):
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
                 if not webhook: webhook = await message.channel.create_webhook(name="Purelink Cleaner")
                 await webhook.send(
-                    content=cleaned_content + "\n\n-# *Link cleaned by Purelink [Shield: ACTIVE]*",
+                    content=cleaned_content + "\n\n-# *Link cleaned by Purelink*",
                     username=message.author.display_name,
                     avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
