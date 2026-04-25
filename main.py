@@ -168,11 +168,11 @@ class PurelinkBot(discord.Client):
 
             # 2. Curl Resolve — TLS verification ON, redirs capped
             cmd = [
-                "curl", "-Ls", "--compressed",
+                "curl", "-sL", "-o", "/dev/null",
                 "--max-time", "8",
                 "--max-redirs", "10",
                 "-A", "Mozilla/5.0",
-                "-w", "\n%{http_code}\n%{url_effective}",
+                "-w", "%{url_effective}\n%{http_code}",
                 current_url
             ]
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
