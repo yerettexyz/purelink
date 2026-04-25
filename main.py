@@ -4,12 +4,15 @@ import re
 import json
 import ipaddress
 import discord
-from prometheus_client import start_http_server, Counter, Gauge
+from prometheus_client import start_http_server, Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 from dotenv import load_dotenv
 
 # --- Metrics ---
 METRICS_PORT = 8000
+API_PORT = 8001
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
 LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total banned links removed')
@@ -17,6 +20,33 @@ HOPS_TOTAL = Counter('purelink_hops_total', 'Total redirect hops performed')
 ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = asyncio.get_event_loop().time()
+
+class StatsHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/stats.json':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*') # Allow all for the dashboard
+            self.end_headers()
+            stats = {
+                "links_cleaned": LINKS_CLEANED._value.get(),
+                "links_detected": LINKS_DETECTED._value.get(),
+                "links_nuked": LINKS_NUKED._value.get(),
+                "hops_total": HOPS_TOTAL._value.get(),
+                "errors_total": ERRORS_TOTAL._value.get(),
+                "uptime": asyncio.get_event_loop().time() - START_TIME
+            }
+            self.wfile.write(json.dumps(stats).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args): return # Silent logs
+
+def run_stats_server():
+    port = int(os.getenv('API_PORT', 8001))
+    server = HTTPServer(('0.0.0.0', port), StatsHandler)
+    server.serve_forever()
 
 # Purelink - JSON Powered Edition
 # Configuration is now decoupled from the source code.
@@ -111,6 +141,15 @@ class PurelinkBot(discord.Client):
             log(f"METRICS: Server listening on port {METRICS_PORT}")
         except Exception as e:
             log(f"METRICS ERROR: Failed to start server: {e}")
+
+        # Start Stats API (Opt-in via .env)
+        stats_port = os.getenv('API_PORT')
+        if stats_port:
+            try:
+                threading.Thread(target=run_stats_server, daemon=True).start()
+                log(f"API: Stats server listening on port {stats_port}")
+            except Exception as e:
+                log(f"API ERROR: Failed to start server: {e}")
 
         # Start uptime tracker
         self.loop.create_task(self.update_uptime())
