@@ -3548,10 +3548,20 @@
         "cjdata",
         "tag=",
         "linkId=",
+        "linkCode=",
         "ref=",
+        "ref_=",
+        "smid=",
+        "si=",
+        "igsh=",
+        "language=",
         "xcm_",
         "tdp",
-        "CMP"
+        "CMP",
+        "_ga=",
+        "_gl=",
+        "mc_cid=",
+        "mc_eid="
     ],
     "peek_keys": [
         "return",

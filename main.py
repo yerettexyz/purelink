@@ -176,7 +176,24 @@ class PurelinkBot(discord.Client):
 
         clean_qs = {}
         for k, v in qs.items():
-            if not any(kw.lower() in k.lower() for kw in CONFIG["tracking_keywords"]):
+            k_lower = k.lower()
+            is_tracking = False
+            for kw in CONFIG["tracking_keywords"]:
+                kw_clean = kw.lower().rstrip('=')
+                if kw.endswith('='):
+                    if k_lower == kw_clean:
+                        is_tracking = True
+                        break
+                elif kw.endswith('_'):
+                    if k_lower.startswith(kw_clean):
+                        is_tracking = True
+                        break
+                else:
+                    if kw_lower in k_lower:
+                        is_tracking = True
+                        break
+            
+            if not is_tracking:
                 clean_qs[k] = v
 
         clean_path = p.path
