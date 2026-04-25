@@ -51,6 +51,14 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Purelink Private Plugins
+api_plugin.py
+purelink_stats_frontend/
+
+# Local configuration
+.env
+data.json
+
 # Translations
 *.mo
 *.pot

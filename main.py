@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 
 # --- Metrics ---
 METRICS_PORT = 8000
-API_PORT = 8001
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
 LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total banned links removed')
@@ -21,38 +20,20 @@ ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = asyncio.get_event_loop().time()
 
-class StatsHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/stats.json':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            # Security: Only allow your official domain to fetch stats
-            self.send_header('Access-Control-Allow-Origin', 'https://yerette.xyz') 
-            self.end_headers()
-            stats = {
-                "links_cleaned": LINKS_CLEANED._value.get(),
-                "links_detected": LINKS_DETECTED._value.get(),
-                "links_nuked": LINKS_NUKED._value.get(),
-                "hops_total": HOPS_TOTAL._value.get(),
-                "errors_total": ERRORS_TOTAL._value.get(),
-                "uptime": asyncio.get_event_loop().time() - START_TIME
-            }
-            self.wfile.write(json.dumps(stats).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args): return # Silent logs
-
-def run_stats_server():
-    port = int(os.getenv('API_PORT', 8001))
-    server = HTTPServer(('0.0.0.0', port), StatsHandler)
-    server.serve_forever()
-
 # Purelink - JSON Powered Edition
 # Configuration is now decoupled from the source code.
 
 load_dotenv()
+
+# Try to load private API plugin if exists
+API_PLUGIN = None
+if os.path.exists('api_plugin.py'):
+    try:
+        import api_plugin
+        API_PLUGIN = api_plugin
+        log("PLUGIN: Private Stats API loaded locally.")
+    except Exception as e:
+        log(f"PLUGIN ERROR: Failed to load api_plugin: {e}")
 
 # --- Startup Checks ---
 TOKEN = os.getenv('TOKEN')
@@ -143,12 +124,11 @@ class PurelinkBot(discord.Client):
         except Exception as e:
             log(f"METRICS ERROR: Failed to start server: {e}")
 
-        # Start Stats API (Opt-in via .env)
-        stats_port = os.getenv('API_PORT')
-        if stats_port:
+        # Start Stats API (Private Plugin)
+        if API_PLUGIN:
             try:
-                threading.Thread(target=run_stats_server, daemon=True).start()
-                log(f"API: Stats server listening on port {stats_port}")
+                threading.Thread(target=API_PLUGIN.run_stats_server, args=(self,), daemon=True).start()
+                log(f"API: Stats server started via plugin.")
             except Exception as e:
                 log(f"API ERROR: Failed to start server: {e}")
 
