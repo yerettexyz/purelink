@@ -10,9 +10,10 @@ from dotenv import load_dotenv
 
 # --- Metrics ---
 METRICS_PORT = 8000
-MSG_PROCESSED = Counter('purelink_messages_total', 'Total messages processed')
 LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
+LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total banned links removed')
+HOPS_TOTAL = Counter('purelink_hops_total', 'Total redirect hops performed')
 ERRORS_TOTAL = Counter('purelink_errors_total', 'Total processing errors')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = asyncio.get_event_loop().time()
@@ -163,6 +164,7 @@ class PurelinkBot(discord.Client):
             content = "\n".join(lines[:-2])
 
             log(f"UNWRAP: Hop {hop} (Status {status_code}) -> {final_eff_url}")
+            HOPS_TOTAL.inc()
 
             # 3. Scrape Redirects
             meta = re.search(r'url=(?P<url>https?://[^\"\']+)', content, re.I)
@@ -236,7 +238,6 @@ class PurelinkBot(discord.Client):
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
-        MSG_PROCESSED.inc()
         # Cap URLs per message to prevent DoS
         urls = urls[:MAX_URLS_PER_MESSAGE]
         LINKS_DETECTED.inc(len(urls))
@@ -253,6 +254,7 @@ class PurelinkBot(discord.Client):
             if any(d in domain for d in CONFIG.get("banned_domains", [])):
                 cleaned_content = cleaned_content.replace(url, "", 1).strip()
                 any_cleaned = True
+                LINKS_NUKED.inc()
                 LINKS_CLEANED.inc()
                 log(f"NUKE: Removed banned link {url}")
                 continue
