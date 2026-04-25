@@ -95,14 +95,17 @@ class PurelinkBot(discord.Client):
         except: return url
 
     async def _resolve_chain(self, url):
-        if not self.session: return url
+        def _fetch(u):
+            import urllib.request
+            req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+            return urllib.request.urlopen(req, timeout=5).geturl()
+
         try:
-            async with self.session.get(url, allow_redirects=True, timeout=5) as resp:
-                final_url = str(resp.url)
-                # Shield: If too short or not HTTP, it's garbage. 
-                if not final_url or len(final_url) < 15 or not final_url.startswith("http"):
-                    return url
-                return final_url
+            # Use urllib in a thread to bypass aiohttp's strict header size limits (e.g. x.com crashes)
+            final_url = await self.loop.run_in_executor(None, _fetch, url)
+            if not final_url or len(final_url) < 15 or not final_url.startswith("http"):
+                return url
+            return final_url
         except:
             return url
 
