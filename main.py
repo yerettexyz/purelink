@@ -36,9 +36,8 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# Intents
-intents = discord.Intents.default()
-intents.message_content = True
+# Intents: Using all() to ensure full compatibility with modern Discord requirements
+intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 # Metrics
