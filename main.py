@@ -5,8 +5,8 @@ import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink Discord Bot - Amazon Path-Hardened Build
-# This version surgically removes tracking segments from the URL PATH (like /ref=)
+# Purelink Discord Bot - Amazon Path-Hardened Build (Diagnostic)
+# This version surgically removes tracking segments from the URL PATH
 
 load_dotenv()
 
@@ -27,9 +27,10 @@ client = discord.Client(intents=intents)
 async def unwrap_link(url: str) -> str:
     """A multi-hop resolver that surgically removes trackings from paths and query strings."""
     current_url = url
+    print(f"DEBUG: Unroll started for {url}")
     
     for hop in range(1, 10):
-        # 1. PEAKING (Bypass Blocks)
+        # 1. PEAKING
         p = urlparse(current_url)
         qs = parse_qs(p.query)
         found_peek = False
@@ -37,6 +38,7 @@ async def unwrap_link(url: str) -> str:
             if key in qs:
                 potential = unquote(qs[key][0])
                 if potential.startswith("http"):
+                    print(f"DEBUG: Hop {hop} (Peek) found {potential}")
                     current_url = potential
                     found_peek = True
                     break
@@ -44,16 +46,23 @@ async def unwrap_link(url: str) -> str:
 
         # 2. CURL RESOLUTION
         try:
+            print(f"DEBUG: Hop {hop} calling curl for {current_url}")
             cmd = [
                 "curl", "-Ls", "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                 "-w", "\n%{url_effective}",
+                "--connect-timeout", "5",
+                "--max-time", "10",
                 current_url
             ]
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, 
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
             stdout, _ = await proc.communicate()
             if not stdout: break
             
-            lines = stdout.decode().splitlines()
+            lines = stdout.decode('utf-8', errors='ignore').splitlines()
             new_url = lines[-1].strip() 
             content = "\n".join(lines[:-1])
             
@@ -61,14 +70,18 @@ async def unwrap_link(url: str) -> str:
             meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
             if meta:
                 current_url = meta.group("url")
+                print(f"DEBUG: Hop {hop} Meta-Refresh to {current_url}")
                 continue
             
             if new_url == current_url:
                 break
             current_url = new_url
+            print(f"DEBUG: Hop {hop} moved to {current_url}")
+            
             if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
                 break
-        except:
+        except Exception as e:
+            print(f"ERROR: Hop {hop} failed: {e}")
             break
             
     final_url = current_url
@@ -77,7 +90,6 @@ async def unwrap_link(url: str) -> str:
     # Surgical Path Cleaning (Handles Amazon /ref= in path)
     clean_path = p.path
     if "amazon" in p.netloc:
-        # If path contains /ref= or /ref/ we truncate it
         ref_match = re.search(r'/(ref[=/].*)', clean_path)
         if ref_match:
             clean_path = clean_path.split(ref_match.group(1))[0]
@@ -87,10 +99,11 @@ async def unwrap_link(url: str) -> str:
     if is_search:
         qs = parse_qs(p.query)
         clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
+        print(f"DEBUG: Clean Search: {clean_path}")
         return urlunparse((p.scheme, p.netloc, clean_path, '', urlencode(clean_qs, doseq=True), ''))
     else:
         if p.scheme and p.netloc:
-            # Full scrub: Path only, no query or ref segments
+            print(f"DEBUG: Clean Product: {clean_path}")
             return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
         return final_url
 
@@ -102,9 +115,11 @@ async def on_ready():
 @client.event
 async def on_message(message):
     if message.author.bot: return
+    
     urls = re.findall(r'https?://[^\s<>"]+', message.content)
     if not urls: return
 
+    print(f"INFO: Heartbeat message from {message.author}")
     cleaned_content = message.content
     any_cleaned = False
 
@@ -114,10 +129,13 @@ async def on_message(message):
         is_affiliate = any(d in url.lower() for d in UNWRAP_DOMAINS)
 
         if is_tracking or is_affiliate:
-            new_url = await unwrap_link(url_clean)
-            if new_url != url_clean or is_affiliate:
-                cleaned_content = cleaned_content.replace(url, new_url)
-                any_cleaned = True
+            try:
+                new_url = await unwrap_link(url_clean)
+                if new_url != url_clean or is_affiliate:
+                    cleaned_content = cleaned_content.replace(url, new_url)
+                    any_cleaned = True
+            except Exception as e:
+                print(f"ERROR: Process failed for {url}: {e}")
 
     if any_cleaned:
         try:
@@ -133,8 +151,9 @@ async def on_message(message):
                 allowed_mentions=discord.AllowedMentions.none()
             )
             await message.delete()
-        except:
+        except Exception as e:
             await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
+            print(f"ERROR: Final delivery failed: {e}")
 
 if __name__ == '__main__':
     token = os.getenv('TOKEN')
