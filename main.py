@@ -38,6 +38,8 @@ except Exception as e:
     CONFIG = {"unwrap_domains": [], "tracking_keywords": [], "banned_domains": [], "unsupported_domains": []}
 
 
+
+
 intents = discord.Intents.default()
 intents.message_content = True
 
