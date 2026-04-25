@@ -5,6 +5,15 @@ import os
 
 IGNORE_FILE = 'ignore.json'
 
+def _get_ignore_data():
+    if not os.path.exists(IGNORE_FILE):
+        data = {"ignored_channels": [], "ignored_users": []}
+        with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
+        return data
+    try:
+        with open(IGNORE_FILE, 'r') as f: return json.load(f)
+    except: return {"ignored_channels": [], "ignored_users": []}
+
 def register_commands(tree):
     @tree.command(name="purelink", description="Show Purelink information")
     async def purelink_info(interaction: discord.Interaction):
@@ -31,27 +40,51 @@ def register_commands(tree):
     async def ignore_channel(interaction: discord.Interaction, channel_id: str):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        
         try:
-            with open(IGNORE_FILE, 'r') as f: data = json.load(f)
+            data = _get_ignore_data()
             data.setdefault('ignored_channels', []).append(int(channel_id))
             data['ignored_channels'] = list(set(data['ignored_channels']))
             with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
             await interaction.response.send_message(f"✅ Channel `{channel_id}` ignored.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+        except Exception as e: await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
     @tree.command(name="ignore_user", description="Add a user to the ignore list")
     @app_commands.describe(user_id="The ID of the user to ignore")
     async def ignore_user(interaction: discord.Interaction, user_id: str):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
-        
         try:
-            with open(IGNORE_FILE, 'r') as f: data = json.load(f)
+            data = _get_ignore_data()
             data.setdefault('ignored_users', []).append(int(user_id))
             data['ignored_users'] = list(set(data['ignored_users']))
             with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
             await interaction.response.send_message(f"✅ User `{user_id}` ignored.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+        except Exception as e: await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+    @tree.command(name="unignore_channel", description="Remove a channel from the ignore list")
+    @app_commands.describe(channel_id="The ID of the channel to remove")
+    async def unignore_channel(interaction: discord.Interaction, channel_id: str):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        try:
+            data = _get_ignore_data()
+            if int(channel_id) in data.get('ignored_channels', []):
+                data['ignored_channels'].remove(int(channel_id))
+                with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
+                await interaction.response.send_message(f"✅ Channel `{channel_id}` is no longer ignored.", ephemeral=True)
+            else: await interaction.response.send_message(f"❓ Channel `{channel_id}` wasn't in the ignore list.", ephemeral=True)
+        except Exception as e: await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
+    @tree.command(name="unignore_user", description="Remove a user from the ignore list")
+    @app_commands.describe(user_id="The ID of the user to remove")
+    async def unignore_user(interaction: discord.Interaction, user_id: str):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        try:
+            data = _get_ignore_data()
+            if int(user_id) in data.get('ignored_users', []):
+                data['ignored_users'].remove(int(user_id))
+                with open(IGNORE_FILE, 'w') as f: json.dump(data, f, indent=4)
+                await interaction.response.send_message(f"✅ User `{user_id}` is no longer ignored.", ephemeral=True)
+            else: await interaction.response.send_message(f"❓ User `{user_id}` wasn't in the ignore list.", ephemeral=True)
+        except Exception as e: await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
