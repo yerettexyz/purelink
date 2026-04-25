@@ -96,6 +96,7 @@ async def unwrap_link(url: str) -> str:
 
 @client.event
 async def on_message(message):
+    print(f"[DEBUG] Heartbeat: Received message from {message.author}")
     if message.author.bot:
         return
 
