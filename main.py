@@ -6,8 +6,8 @@ import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink - Global Resolve Edition
-# Enhanced curl handling with status code tracking and compression.
+# Purelink - Deep Scraper Edition
+# Hardened against JavaScript and hidden Redirects.
 
 load_dotenv()
 
@@ -37,7 +37,7 @@ class PurelinkBot(discord.Client):
         log(f"UNWRAP: Start {url}")
         
         try:
-            async with asyncio.timeout(15.0):
+            async with asyncio.timeout(18.0):
                 for hop in range(1, 10):
                     # 1. Peek
                     p = urlparse(current_url)
@@ -50,7 +50,7 @@ class PurelinkBot(discord.Client):
                                 log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
                                 continue
                     
-                    # 2. Curl Resolve (Stealth)
+                    # 2. Curl Resolve (With Body Scraper)
                     cmd = [
                         "curl", "-Ls", "--compressed", "--max-time", "8", "-k",
                         "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -70,21 +70,31 @@ class PurelinkBot(discord.Client):
                     
                     log(f"UNWRAP: Hop {hop} (Status {status_code}) -> {final_eff_url}")
 
-                    # Check Meta Refresh
+                    # 3. SCRAPE REDIRECTS (Meta, JS, and Location jumps)
+                    # Meta Refresh
                     meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
-                    if meta:
-                        current_url = meta.group("url")
+                    # JS location.href / window.location
+                    js = re.search(r'location(?:\.href)?\s*=\s*[\'"](?P<url>https?://[^\'"]+)', content, re.I)
+                    
+                    target = None
+                    if meta: target = meta.group("url")
+                    elif js: target = js.group("url")
+
+                    if target:
+                        current_url = target
+                        log(f"UNWRAP: Hop {hop} (Scraped) -> {current_url}")
                         continue
                         
                     if final_eff_url == current_url: break
                     current_url = final_eff_url
                     
+                    # Store break
                     if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
                         break
         except Exception as e:
             log(f"UNWRAP ERROR: {e}")
             
-        # Purity Scrub
+        # Purity
         p = urlparse(current_url)
         clean_path = p.path
         if "amazon" in p.netloc.lower():
@@ -99,7 +109,6 @@ class PurelinkBot(discord.Client):
 
     async def on_message(self, message):
         if message.author.bot: return
-        
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
@@ -114,7 +123,6 @@ class PurelinkBot(discord.Client):
 
             if is_track or is_aff:
                 new_url = await self.unwrap_link(u_clean)
-                # Important: Repost if the link changed OR it's a known affiliate domain
                 if new_url != u_clean or is_aff:
                     cleaned_content = cleaned_content.replace(url, new_url)
                     any_cleaned = True
