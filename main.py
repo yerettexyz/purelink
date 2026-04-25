@@ -205,6 +205,7 @@ class PurelinkBot(discord.Client):
             u_clean = url.rstrip('.,!?;:')
             new_url = await self.unwrap_link(u_clean)
             if new_url != u_clean:
+                log(f"CLEAN SUCCESS: {url} -> {new_url}")
                 # Replace only the first occurrence to prevent content injection
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
