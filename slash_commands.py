@@ -6,15 +6,24 @@ import os
 IGNORE_FILE = 'ignore.json'
 
 def register_commands(tree):
-    @tree.command(name="purelink_help", description="Show Purelink plugin help")
-    async def help_cmd(interaction: discord.Interaction):
-        help_text = (
-            "💡 **Purelink Plugin Help**\n"
-            "`/ignore_channel <id>` - Stop bot from cleaning links in a channel\n"
-            "`/ignore_user <id>` - Stop bot from cleaning links for a user\n"
-            "-# *Native Slash Commands System*"
+    @tree.command(name="purelink", description="Show Purelink information")
+    async def purelink_info(interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="Purelink Bot",
+            description="Purelink is a high-performance URL sanitization bot that restores privacy by stripping affiliate tracking and redirect wrappers.",
+            color=0x3498db # Simple Blue
         )
-        await interaction.response.send_message(help_text, ephemeral=True)
+        embed.add_field(name="Source Code", value="[View GitHub Repository](https://github.com/yerettexyz/purelink)", inline=False)
+        embed.add_field(name="Network Status", value="[View Live Status Page](https://purelink-status.pages.dev)", inline=False)
+        embed.set_footer(text="Purelink v1.0.0 • by Yerette Studio")
+        
+        logo_path = "IMG_9915.webp"
+        if os.path.exists(logo_path):
+            file = discord.File(logo_path, filename="logo.webp")
+            embed.set_thumbnail(url="attachment://logo.webp")
+            await interaction.response.send_message(file=file, embed=embed)
+        else:
+            await interaction.response.send_message(embed=embed)
 
     @tree.command(name="ignore_channel", description="Add a channel to the ignore list")
     @app_commands.describe(channel_id="The ID of the channel to ignore")
