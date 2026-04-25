@@ -6,12 +6,11 @@ import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink - Heavy Logging Edition
-# Designed to be "Loud" in the logs to find the blockage.
+# Purelink - Global Resolve Edition
+# Enhanced curl handling with status code tracking and compression.
 
 load_dotenv()
 
-# Domains to resolve
 UNWRAP_DOMAINS = [
     "mavely", "joinmavely", "mavelyinfluencer.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
     "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io", "rstyle.me",
@@ -22,30 +21,25 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "li
 PEEK_KEYS = ["return", "url", "dest", "destination", "u", "q", "redirect", "redirect_url", "murl"]
 SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price', 'sprefix']
 
-# Force flush for immediate logging
 def log(msg):
     print(f"[BOT] {msg}", flush=True)
 
-# Intents Configuration
 intents = discord.Intents.default()
 intents.message_content = True
 
 class PurelinkBot(discord.Client):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     async def on_ready(self):
-        log(f"SUCCESS: Logged in as {self.user} (ID: {self.user.id})")
+        log(f"SUCCESS: Logged in as {self.user}")
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
 
     async def unwrap_link(self, url: str) -> str:
         current_url = url
-        log(f"UNWRAP: Starting resolution for {url}")
+        log(f"UNWRAP: Start {url}")
         
         try:
-            async with asyncio.timeout(12.0):
-                for hop in range(1, 8):
-                    # 1. Peeking
+            async with asyncio.timeout(15.0):
+                for hop in range(1, 10):
+                    # 1. Peek
                     p = urlparse(current_url)
                     qs = parse_qs(p.query)
                     for key in PEEK_KEYS:
@@ -56,34 +50,41 @@ class PurelinkBot(discord.Client):
                                 log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
                                 continue
                     
-                    # 2. Curl Resolve hop
-                    cmd = ["curl", "-Ls", "--max-time", "6", "-A", "Mozilla/5.0", "-w", "\n%{url_effective}", current_url]
+                    # 2. Curl Resolve (Stealth)
+                    cmd = [
+                        "curl", "-Ls", "--compressed", "--max-time", "8", "-k",
+                        "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                        "-w", "\n%{http_code}\n%{url_effective}",
+                        current_url
+                    ]
                     proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
                     stdout, _ = await proc.communicate()
                     if not stdout: break
                     
                     lines = stdout.decode('utf-8', errors='ignore').splitlines()
-                    if not lines: break
-                    new_url = lines[-1].strip()
-                    content = "\n".join(lines[:-1])
+                    if len(lines) < 2: break
                     
-                    # Meta refresh check
+                    final_eff_url = lines[-1].strip()
+                    status_code = lines[-2].strip()
+                    content = "\n".join(lines[:-2])
+                    
+                    log(f"UNWRAP: Hop {hop} (Status {status_code}) -> {final_eff_url}")
+
+                    # Check Meta Refresh
                     meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
                     if meta:
                         current_url = meta.group("url")
-                        log(f"UNWRAP: Hop {hop} (Meta) -> {current_url}")
                         continue
                         
-                    if new_url == current_url: break
-                    current_url = new_url
-                    log(f"UNWRAP: Hop {hop} (Curl) -> {current_url}")
+                    if final_eff_url == current_url: break
+                    current_url = final_eff_url
                     
                     if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
                         break
         except Exception as e:
             log(f"UNWRAP ERROR: {e}")
             
-        # Final Scrub
+        # Purity Scrub
         p = urlparse(current_url)
         clean_path = p.path
         if "amazon" in p.netloc.lower():
@@ -99,13 +100,10 @@ class PurelinkBot(discord.Client):
     async def on_message(self, message):
         if message.author.bot: return
         
-        # LOG EVERY SINGLE MESSAGE TO THE CONSOLE
-        log(f"EVENT: Message received from {message.author}")
-
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
-        log(f"EVENT: Found {len(urls)} candidates in message.")
+        log(f"EVENT: Processing {len(urls)} links from {message.author}")
         cleaned_content = message.content
         any_cleaned = False
 
@@ -116,6 +114,7 @@ class PurelinkBot(discord.Client):
 
             if is_track or is_aff:
                 new_url = await self.unwrap_link(u_clean)
+                # Important: Repost if the link changed OR it's a known affiliate domain
                 if new_url != u_clean or is_aff:
                     cleaned_content = cleaned_content.replace(url, new_url)
                     any_cleaned = True
@@ -134,13 +133,11 @@ class PurelinkBot(discord.Client):
                     allowed_mentions=discord.AllowedMentions.none()
                 )
                 await message.delete()
-                log("EVENT: Message cleaned and reposted.")
             except Exception as e:
-                log(f"EVENT ERROR: Failed to process clean message: {e}")
+                log(f"EVENT ERROR: Repost failed: {e}")
                 await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
 
 if __name__ == '__main__':
     bot = PurelinkBot(intents=intents)
     token = os.getenv('TOKEN')
-    log("STARTUP: Running client.run()")
     bot.run(token)
