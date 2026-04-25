@@ -1,8 +1,8 @@
 import asyncio
 import os
 import re
-import sys
 import json
+import ipaddress
 import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
@@ -12,10 +12,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- Startup Checks ---
+TOKEN = os.getenv('TOKEN')
+if not TOKEN:
+    print("CRITICAL: TOKEN environment variable is not set. Check your .env file.")
+    raise SystemExit(1)
+
 def load_config():
-    """Load tracking config from data.json."""
+    """Load tracking config from data.json using an absolute path."""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.json')
     try:
-        with open('data.json', 'r') as f:
+        with open(config_path, 'r') as f:
             return json.load(f)
     except Exception as e:
         print(f"CRITICAL: Failed to load data.json: {e}")
@@ -28,11 +35,44 @@ def load_config():
 
 CONFIG = load_config()
 
+# --- SSRF Protection ---
+# Private, loopback, link-local, and reserved IP ranges to block
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
+    ipaddress.ip_network("10.0.0.0/8"),        # Private
+    ipaddress.ip_network("172.16.0.0/12"),     # Private
+    ipaddress.ip_network("192.168.0.0/16"),    # Private
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / Cloud metadata
+    ipaddress.ip_network("::1/128"),           # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),          # IPv6 private
+    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
+]
+
+def is_ssrf_safe(url: str) -> bool:
+    """Return False if URL resolves to a private/reserved address."""
+    try:
+        host = urlparse(url).hostname
+        if not host:
+            return False
+        # Reject obvious internal hostnames
+        if host in ("localhost", "metadata.google.internal"):
+            return False
+        addr = ipaddress.ip_address(host)
+        for net in _BLOCKED_NETWORKS:
+            if addr in net:
+                return False
+    except ValueError:
+        # Not an IP address — it's a hostname, pass through
+        pass
+    return True
+
 def log(msg):
     print(f"[BOT] {msg}", flush=True)
 
 intents = discord.Intents.default()
 intents.message_content = True
+
+MAX_URLS_PER_MESSAGE = 5
 
 class PurelinkBot(discord.Client):
     async def on_ready(self):
@@ -42,6 +82,11 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url: str) -> str:
         current_url = url
         for hop in range(1, 10):
+            # SSRF check before any outbound request
+            if not is_ssrf_safe(current_url):
+                log(f"SSRF BLOCKED: {current_url}")
+                return url
+
             # 1. Peek
             p = urlparse(current_url)
             qs = parse_qs(p.query)
@@ -52,26 +97,33 @@ class PurelinkBot(discord.Client):
                         current_url = potential
                         log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
                         continue
-            
-            # 2. Curl Resolve
-            cmd = ["curl", "-Ls", "--compressed", "--max-time", "8", "-k", "-A", "Mozilla/5.0", "-w", "\n%{http_code}\n%{url_effective}", current_url]
+
+            # 2. Curl Resolve — TLS verification ON, redirs capped
+            cmd = [
+                "curl", "-Ls", "--compressed",
+                "--max-time", "8",
+                "--max-redirs", "10",
+                "-A", "Mozilla/5.0",
+                "-w", "\n%{http_code}\n%{url_effective}",
+                current_url
+            ]
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             stdout, _ = await proc.communicate()
             if not stdout: break
-            
+
             lines = stdout.decode('utf-8', errors='ignore').splitlines()
             if len(lines) < 2: break
-            
+
             final_eff_url = lines[-1].strip()
             status_code = lines[-2].strip()
             content = "\n".join(lines[:-2])
-            
+
             log(f"UNWRAP: Hop {hop} (Status {status_code}) -> {final_eff_url}")
 
             # 3. Scrape Redirects
-            meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
-            js = re.search(r'location(?:\.href)?\s*=\s*[\'"](?P<url>https?://[^\'"]+)', content, re.I)
-            
+            meta = re.search(r'url=(?P<url>https?://[^\"\']+)', content, re.I)
+            js = re.search(r'location(?:\.href)?\s*=\s*[\'\"](?P<url>https?://[^\'\"]+)', content, re.I)
+
             target = None
             if meta: target = meta.group("url")
             elif js: target = js.group("url")
@@ -80,7 +132,7 @@ class PurelinkBot(discord.Client):
                 current_url = target
                 log(f"UNWRAP: Hop {hop} (Scraped) -> {current_url}")
                 continue
-                
+
             if final_eff_url == current_url: break
             current_url = final_eff_url
             if not any(d in current_url for d in CONFIG["unwrap_domains"]) and not any(kw in current_url for kw in CONFIG["tracking_keywords"]):
@@ -99,12 +151,11 @@ class PurelinkBot(discord.Client):
             except Exception as e:
                 log(f"UNWRAP ERROR: {e}")
                 final_url = url
-            
-        # Purity Scrub
+
+        # Purity Scrub — surgical removal of tracking keywords only
         p = urlparse(final_url)
         qs = parse_qs(p.query)
-        
-        # Surgical removal of tracking keywords
+
         clean_qs = {}
         for k, v in qs.items():
             if not any(kw.lower() in k.lower() for kw in CONFIG["tracking_keywords"]):
@@ -113,8 +164,7 @@ class PurelinkBot(discord.Client):
         clean_path = p.path
         if "amazon" in p.netloc.lower():
             clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
-        
-        # Build final URL
+
         new_query = urlencode(clean_qs, doseq=True)
         return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
 
@@ -123,16 +173,19 @@ class PurelinkBot(discord.Client):
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
 
+        # Cap URLs per message to prevent DoS
+        urls = urls[:MAX_URLS_PER_MESSAGE]
+
         log(f"EVENT: Processing {len(urls)} links from {message.author}")
         cleaned_content = message.content
         any_cleaned = False
 
         for url in urls:
             u_clean = url.rstrip('.,!?;:')
-            # Always try to unwrap/clean, but only act if it produces a different URL
             new_url = await self.unwrap_link(u_clean)
             if new_url != u_clean:
-                cleaned_content = cleaned_content.replace(url, new_url)
+                # Replace only the first occurrence to prevent content injection
+                cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
 
         if any_cleaned:
@@ -155,5 +208,4 @@ class PurelinkBot(discord.Client):
 
 if __name__ == '__main__':
     bot = PurelinkBot(intents=intents)
-    token = os.getenv('TOKEN')
-    bot.run(token)
+    bot.run(TOKEN)
