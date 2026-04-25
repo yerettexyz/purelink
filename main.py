@@ -1,13 +1,19 @@
 import asyncio
 import os
 import re
-import httpx
 import discord
-import random
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from dotenv import load_dotenv
 from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
+
+# Import curl_cffi for the ultimate Cloudflare bypass
+try:
+    from curl_cffi.requests import AsyncSession
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+    import httpx
 
 # Purelink Discord Bot
 # Original Copyright (c) Daniel Ting
@@ -24,86 +30,45 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "af
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-}
-
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects with multiple failovers for tough-to-crack affiliate links."""
+    """Follows redirects using curl_cffi to spoof TLS fingerprints and bypass Cloudflare."""
     
-    is_mavely = any(d in url for d in ["mavely.app", "mavelylife.com"])
+    final_url = url
     
-    if is_mavely:
-        # Multi-Stage Failover for Mavely (Bypasses IP blocks)
-        # Service 1: unshorten.me
-        # Service 2: expandurl.net (Scraped)
-        try:
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as unshorten_client:
-                # Attempt 1: unshorten.me
-                resp = await unshorten_client.get(f"https://unshorten.me/s/{url}")
-                if resp.status_code == 200 and "Unknown Error" not in resp.text and "unshorten.me" not in resp.text:
-                    decoded = resp.text.strip()
-                    if "http" in decoded:
-                        print(f"[DEBUG] Failover 1 (unshorten.me) Success")
-                        return await finalize_url(decoded)
-
-                # Attempt 2: expandurl.net (Scraping the result)
-                resp = await unshorten_client.get(f"https://www.expandurl.net/expand?url={url}")
-                if resp.status_code == 200:
-                    # Look for the long URL in the page source
-                    match = re.search(r'id="longest-url"[^>]*>(?P<url>https?://[^<]+)</a>', resp.text)
-                    if match:
-                        print(f"[DEBUG] Failover 2 (expandurl.net) Success")
-                        return await finalize_url(match.group("url"))
-        except Exception as e:
-            print(f"[DEBUG] Failover failed: {e}")
-
-    # Standard resolution for everything else (Amazon, etc.)
-    async with httpx.AsyncClient(
-        follow_redirects=True, 
-        max_redirects=15, 
-        headers=HEADERS, 
-        cookies=httpx.Cookies(),
-        http2=False,
-        timeout=15.0
-    ) as httpx_client:
-        hops = 0
-        current_url = url
-        while hops < 15:
+    if HAS_CURL_CFFI:
+        # ULTIMATE STEALTH: Spoofing Chrome 120 TLS fingerprint
+        async with AsyncSession(impersonate="chrome120") as s:
             try:
-                response = await httpx_client.get(current_url)
-                current_url = str(response.url)
+                print(f"[DEBUG] Impersonating Chrome for: {url}")
+                resp = await s.get(url, follow_redirects=True, timeout=15)
+                final_url = str(resp.url)
                 
-                # Check for Meta Refresh
-                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
+                # Check for Meta Refresh in the stealth response
+                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
                 if meta_match:
-                    current_url = meta_match.group("url")
-                    hops += 1
-                    continue
+                    final_url = await unwrap_link(meta_match.group("url"))
+            except Exception as e:
+                print(f"[DEBUG] Stealth resolution failed: {e}")
+    else:
+        # Fallback to standard httpx if library is missing
+        async with httpx.AsyncClient(follow_redirects=True, timeout=12.0) as httpx_client:
+            try:
+                resp = await httpx_client.get(url)
+                final_url = str(resp.url)
+            except:
+                pass
 
-                if response.status_code != 200:
-                    break
-                
-                parsed_final = urlparse(current_url)
-                if not any(d in parsed_final.netloc for d in UNWRAP_DOMAINS):
-                    break
-            except Exception:
-                break
-            hops += 1
-        return await finalize_url(current_url)
-
-async def finalize_url(url: str) -> str:
-    """Applies smart purity logic to the final resolved URL."""
-    p = urlparse(url)
+    # Smart Purity Logic
+    p = urlparse(final_url)
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
-        return clear_url(url)
+        return clear_url(final_url)
     else:
         if p.scheme and p.netloc:
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
-        return url
+        return final_url
 
 @client.event
 async def on_ready():
