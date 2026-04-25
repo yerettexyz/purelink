@@ -79,7 +79,7 @@ class PurelinkBot(discord.Client):
             qs = parse_qs(p.query)
             clean_qs = {}
             for k, v in qs.items():
-                if not any(kw in k.lower() for kw in CONFIG["tracking_keywords"]):
+                if not any(kw.rstrip('=') in k.lower() for kw in CONFIG["tracking_keywords"]):
                     clean_qs[k] = v
             
             clean_path = p.path
@@ -127,8 +127,8 @@ class PurelinkBot(discord.Client):
                 new_url = self.unwrap_link(new_url)
                 log(f"DEBUG: Result -> {new_url}")
 
-            # DOUBLE SHIELD: Must be a URL and not '200'
-            if new_url and str(new_url).startswith("http") and new_url != u_clean:
+            # STRICT REGEX SHIELD: Must be a valid URL
+            if new_url and re.match(r'^https?://[^\s<>"]+$', str(new_url)) and new_url != u_clean:
                 log(f"DEBUG: Applying clean -> {new_url}")
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
@@ -144,7 +144,7 @@ class PurelinkBot(discord.Client):
                 webhook = discord.utils.get(webhooks, name="Purelink Cleaner")
                 if not webhook: webhook = await message.channel.create_webhook(name="Purelink Cleaner")
                 await webhook.send(
-                    content=cleaned_content + "\n\n-# *Link cleaned by Purelink*",
+                    content=cleaned_content + "\n\n-# *Link cleaned by Purelink [Shield: ACTIVE]*",
                     username=message.author.display_name,
                     avatar_url=message.author.display_avatar.url if message.author.display_avatar else None,
                     allowed_mentions=discord.AllowedMentions.none()
