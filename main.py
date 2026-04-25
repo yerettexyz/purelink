@@ -5,8 +5,8 @@ import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink Discord Bot - Amazon Path-Hardened Build (Diagnostic)
-# This version surgically removes tracking segments from the URL PATH
+# Purelink Discord Bot - Amazon Path-Hardened Build (Final Stable)
+# Hardened timeout and loop safety for finicky shortlinks.
 
 load_dotenv()
 
@@ -25,85 +25,84 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 async def unwrap_link(url: str) -> str:
-    """A multi-hop resolver that surgically removes trackings from paths and query strings."""
+    """A hardened multi-hop resolver with a global timeout."""
     current_url = url
     print(f"DEBUG: Unroll started for {url}")
     
-    for hop in range(1, 10):
-        # 1. PEAKING
-        p = urlparse(current_url)
-        qs = parse_qs(p.query)
-        found_peek = False
-        for key in PEEK_KEYS:
-            if key in qs:
-                potential = unquote(qs[key][0])
-                if potential.startswith("http"):
-                    print(f"DEBUG: Hop {hop} (Peek) found {potential}")
-                    current_url = potential
-                    found_peek = True
-                    break
-        if found_peek: continue
+    try:
+        # We put the entire unroll process in a 15-second cage
+        async with asyncio.timeout(15.0):
+            for hop in range(1, 10):
+                # 1. PEAKING
+                p = urlparse(current_url)
+                qs = parse_qs(p.query)
+                found_peek = False
+                for key in PEEK_KEYS:
+                    if key in qs:
+                        potential = unquote(qs[key][0])
+                        if potential.startswith("http"):
+                            print(f"DEBUG: Hop {hop} Peeked {potential}")
+                            current_url = potential
+                            found_peek = True
+                            break
+                if found_peek: continue
 
-        # 2. CURL RESOLUTION
-        try:
-            print(f"DEBUG: Hop {hop} calling curl for {current_url}")
-            cmd = [
-                "curl", "-Ls", "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                "-w", "\n%{url_effective}",
-                "--connect-timeout", "5",
-                "--max-time", "10",
-                current_url
-            ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, 
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
-            if not stdout: break
-            
-            lines = stdout.decode('utf-8', errors='ignore').splitlines()
-            new_url = lines[-1].strip() 
-            content = "\n".join(lines[:-1])
-            
-            # Check for Meta Refresh
-            meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
-            if meta:
-                current_url = meta.group("url")
-                print(f"DEBUG: Hop {hop} Meta-Refresh to {current_url}")
-                continue
-            
-            if new_url == current_url:
-                break
-            current_url = new_url
-            print(f"DEBUG: Hop {hop} moved to {current_url}")
-            
-            if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
-                break
-        except Exception as e:
-            print(f"ERROR: Hop {hop} failed: {e}")
-            break
+                # 2. CURL RESOLUTION
+                try:
+                    cmd = [
+                        "curl", "-Ls", "--max-time", "8", "-A", "Mozilla/5.0",
+                        "-w", "\n%{url_effective}",
+                        current_url
+                    ]
+                    proc = await asyncio.create_subprocess_exec(
+                        *cmd, 
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.DEVNULL
+                    )
+                    stdout, _ = await proc.communicate()
+                    if not stdout: break
+                    
+                    lines = stdout.decode('utf-8', errors='ignore').splitlines()
+                    if not lines: break
+                    
+                    new_url = lines[-1].strip() 
+                    content = "\n".join(lines[:-1])
+                    
+                    # Check Meta Refresh
+                    if "meta" in content.lower() and "http-equiv" in content.lower():
+                        meta = re.search(r'url=(?P<url>https?://[^"\']+)', content, re.I)
+                        if meta:
+                            current_url = meta.group("url")
+                            continue
+                    
+                    if new_url == current_url: break
+                    current_url = new_url
+                    
+                    # Stop if we hit a clean domain
+                    if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
+                        break
+                except Exception as e:
+                    print(f"ERROR: Hop {hop} curl failed: {e}")
+                    break
+    except asyncio.TimeoutError:
+        print(f"ERROR: Global timeout reached for {url}")
             
     final_url = current_url
     p = urlparse(final_url)
     
-    # Surgical Path Cleaning (Handles Amazon /ref= in path)
+    # Path Scrubbing (Amazon ref segments)
     clean_path = p.path
     if "amazon" in p.netloc:
-        ref_match = re.search(r'/(ref[=/].*)', clean_path)
-        if ref_match:
-            clean_path = clean_path.split(ref_match.group(1))[0]
+        clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
     
     # Purity Logic
     is_search = any(k in clean_path for k in ['/s', '/search']) or 'k=' in p.query
     if is_search:
         qs = parse_qs(p.query)
         clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
-        print(f"DEBUG: Clean Search: {clean_path}")
         return urlunparse((p.scheme, p.netloc, clean_path, '', urlencode(clean_qs, doseq=True), ''))
     else:
         if p.scheme and p.netloc:
-            print(f"DEBUG: Clean Product: {clean_path}")
             return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
         return final_url
 
@@ -115,11 +114,10 @@ async def on_ready():
 @client.event
 async def on_message(message):
     if message.author.bot: return
-    
     urls = re.findall(r'https?://[^\s<>"]+', message.content)
     if not urls: return
 
-    print(f"INFO: Heartbeat message from {message.author}")
+    print(f"INFO: Message from {message.author} contains {len(urls)} link(s)")
     cleaned_content = message.content
     any_cleaned = False
 
@@ -135,7 +133,7 @@ async def on_message(message):
                     cleaned_content = cleaned_content.replace(url, new_url)
                     any_cleaned = True
             except Exception as e:
-                print(f"ERROR: Process failed for {url}: {e}")
+                print(f"ERROR: Processing failed: {e}")
 
     if any_cleaned:
         try:
@@ -153,7 +151,6 @@ async def on_message(message):
             await message.delete()
         except Exception as e:
             await message.channel.send(f"**Cleaned link:**\n{cleaned_content}")
-            print(f"ERROR: Final delivery failed: {e}")
 
 if __name__ == '__main__':
     token = os.getenv('TOKEN')
