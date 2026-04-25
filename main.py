@@ -118,14 +118,19 @@ class PurelinkBot(discord.Client):
 
             new_url = u_clean
             if any(d in domain for d in CONFIG["unwrap_domains"]) or any(kw in u_clean for kw in CONFIG["tracking_keywords"]):
+                log(f"DEBUG: Resolving {u_clean}...")
                 new_url = await self._resolve_chain(u_clean)
                 new_url = self.unwrap_link(new_url)
+                log(f"DEBUG: Result -> {new_url}")
 
             # DOUBLE SHIELD: Must be a URL and not '200'
             if new_url and str(new_url).startswith("http") and new_url != u_clean:
+                log(f"DEBUG: Applying clean -> {new_url}")
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
+            else:
+                log(f"DEBUG: Shield rejected or no cleaning needed for {new_url}")
 
         if any_cleaned:
             if not cleaned_content.strip(): return
