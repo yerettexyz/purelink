@@ -26,7 +26,8 @@ class StatsHandler(BaseHTTPRequestHandler):
         if self.path == '/stats.json':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*') # Allow all for the dashboard
+            # Security: Only allow your official domain to fetch stats
+            self.send_header('Access-Control-Allow-Origin', 'https://yerette.xyz') 
             self.end_headers()
             stats = {
                 "links_cleaned": LINKS_CLEANED._value.get(),
