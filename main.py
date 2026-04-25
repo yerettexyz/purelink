@@ -15,6 +15,7 @@ from prometheus_client import start_http_server, Summary, Counter, Gauge
 
 # Purelink Configuration
 MAVELY_DOMAINS = ["mavely.app", "joinmavely.com"]
+TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "aff_", "mc_cid", "mc_eid"]
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 FOOTER_TEXT = "\n\n*Link cleaned by Purelink*"
 
@@ -35,25 +36,23 @@ async def count_servers_members():
         await asyncio.sleep(60)
 
 async def unwrap_link(url: str) -> str:
-    """Follows redirects and strips tracking parameters."""
+    """Follows redirects and strips ALL tracking parameters for total purity."""
     parsed = urlparse(url)
     is_mavely = any(domain in parsed.netloc for domain in MAVELY_DOMAINS)
+    is_tracking_base = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
     
+    # If it's a known affiliate redirect or has heavy tracking, resolve it
     if is_mavely:
         async with httpx.AsyncClient(follow_redirects=True, max_redirects=5) as httpx_client:
             try:
                 response = await httpx_client.get(url, timeout=10.0)
-                final_url = str(response.url)
-                # Strip all query params for Mavely destination
-                p = urlparse(final_url)
-                return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
+                url = str(response.url)
             except Exception:
-                # Fallback to unalix if resolution fails
-                return clear_url(url)
-    
-    # Standard cleaning for non-mavely links
-    cleaned = clear_url(url)
-    return cleaned
+                pass # Fallback to cleaning the original URL
+
+    # Total Purity: Strip ALL query parameters
+    p = urlparse(url)
+    return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
 
 @client.event
 async def on_ready():
@@ -76,15 +75,16 @@ async def on_message(message):
     any_cleaned = False
 
     for url in urls:
-        # Check against pure unalix cleaning first for quick detection
-        # (Unalix is synchronous, so we use it for a quick check)
+        # Check against pure unalix cleaning and our custom keywords
         standard_cleaned = clear_url(url).strip('&')
         is_mavely = any(domain in url for domain in MAVELY_DOMAINS)
+        is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
-        if standard_cleaned != url.strip('&') or is_mavely:
-            # Perform deeper async cleaning/unwrapping
+        if standard_cleaned != url.strip('&') or is_mavely or is_tracking_kw:
+            # Perform total purity cleaning
             new_url = await unwrap_link(url)
-            if new_url != url:
+            if new_url != url.strip('&'):
+                # Ensure we handle the trailing & if they exist in original
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
 
