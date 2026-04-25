@@ -107,13 +107,17 @@ class PurelinkBot(discord.Client):
             log(f"DEBUG: Peeking into {current_url}")
             p = urlparse(current_url)
             qs = parse_qs(p.query)
+            peeked = False
             for key in CONFIG["peek_keys"]:
                 if key in qs:
                     potential = unquote(qs[key][0])
                     if potential.startswith("http"):
                         current_url = potential
                         log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
-                        continue
+                        peeked = True
+                        break # Exit peek_keys loop
+            if peeked:
+                continue # Restart hop loop with new current_url
 
             # 2. Curl Resolve — TLS verification ON, redirs capped
             cmd = [
