@@ -111,8 +111,6 @@ MAX_URLS_PER_MESSAGE = 5
 class PurelinkBot(discord.Client):
     async def setup_hook(self):
         log(f"SUCCESS: Logged in as {self.user}")
-        activity = discord.Activity(type=discord.ActivityType.watching, name="for tracking links")
-        await self.change_presence(activity=activity)
         
         # Start Private Monitoring Bridge (Prometheus + JSON API)
         if API_PLUGIN:
@@ -134,6 +132,11 @@ class PurelinkBot(discord.Client):
 
         # Start uptime tracker
         self.loop.create_task(self.update_uptime())
+
+    async def on_ready(self):
+        activity = discord.Activity(type=discord.ActivityType.watching, name="for tracking links")
+        await self.change_presence(activity=activity)
+        log("STATUS: Presence updated and bot is ready.")
 
     async def update_uptime(self):
         while not self.is_closed():
