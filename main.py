@@ -1,26 +1,18 @@
 import asyncio
 import os
 import re
+import httpx
 import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from dotenv import load_dotenv
 from unalix import clear_url
 from prometheus_client import start_http_server, Summary, Counter, Gauge
 
-# Import curl_cffi for the best possible bypass
-try:
-    from curl_cffi.requests import AsyncSession
-    HAS_CURL_CFFI = True
-except ImportError:
-    HAS_CURL_CFFI = False
-    import httpx
-
 # Purelink Discord Bot
-# Original Copyright (c) Daniel Ting
-# Modifications Copyright (c) 2024 psalm2517 (Purelink Team)
-# Licensed under LGPL-3.0
+# Production Version
+# Copyright (c) 2024 Purelink Team
 
-# Configuration
+# Core Configuration
 UNWRAP_DOMAINS = [
     "mavely.app", "joinmavely.com", "mavelylife.com", 
     "mavely.app.link", "go.mavely.app", 
@@ -30,46 +22,62 @@ TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "ref=", "af
 SEARCH_KEEPERS = ['k', 'q', 'query', 'srs', 'bbn', 'rh', 'i', 'p_36']
 URL_REGEX = re.compile(r'(?P<url>https?://[^\s]+)')
 
-intents = discord.Intents.all()
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+}
+
+# Intents
+intents = discord.Intents.default()
+intents.message_content = True
 client = discord.Client(intents=intents)
 
+# Metrics
+process_message_time = Summary('process_message_time', 'Time spent processing message')
+messages = Counter('messages', 'Total number of messages processed')
+cleaned_messages = Counter('cleaned_messages', 'Number of messages with tracking links cleaned')
+servers = Gauge('servers', 'Number of servers the bot is in')
+
+async def update_metrics():
+    while True:
+        servers.set(len(client.guilds))
+        await asyncio.sleep(60)
+
 async def unwrap_link(url: str) -> str:
-    """Follows redirects using curl_cffi, or falls back to a 'naked' affiliate link if blocked."""
+    """Follows redirects where possible; falls back to 'naked' links for guarded domains."""
     
-    final_url = url
-    
-    # Pre-cleaning: Even if we can't unwrap, we should at least return a 'naked' URL
-    p_initial = urlparse(url)
-    naked_url = urlunparse((p_initial.scheme, p_initial.netloc, p_initial.path, '', '', ''))
+    p_init = urlparse(url)
+    # Default 'clean' link is just the original link without query parameters or fragments
+    final_url = urlunparse((p_init.scheme, p_init.netloc, p_init.path, '', '', ''))
 
-    if HAS_CURL_CFFI:
+    async with httpx.AsyncClient(
+        follow_redirects=True, 
+        max_redirects=10, 
+        headers=HEADERS, 
+        timeout=10.0
+    ) as httpx_client:
         try:
-            async with AsyncSession(impersonate="chrome120") as s:
-                print(f"[DEBUG] Impersonating Chrome for: {url}")
-                resp = await s.get(url, follow_redirects=True, timeout=15)
-                # If we hit a 403, we didn't resolve, but we'll try to find a URL in the text anyway
-                if resp.status_code == 200:
-                    final_url = str(resp.url)
-                    # Check for Meta Refresh / JS
-                    meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', resp.text, re.I)
-                    if meta_match:
-                        # Recursive unwrap for the meta link
-                        final_url = await unwrap_link(meta_match.group("url"))
-                else:
-                    print(f"[DEBUG] Resolution failed (Status {resp.status_code}), returning naked URL.")
-                    final_url = naked_url
-        except Exception as e:
-            print(f"[DEBUG] Stealth error: {e}")
-            final_url = naked_url
-    else:
-        # Fallback to a naked URL if curl_cffi is missing and resolution fails
-        final_url = naked_url
+            response = await httpx_client.get(url)
+            if response.status_code == 200:
+                final_url = str(response.url)
+                
+                # Check for standard HTML Meta Refresh
+                meta_match = re.search(r'url=(?P<url>https?://[^"\']+)', response.text, re.I)
+                if meta_match:
+                    # Resolve the meta link once
+                    meta_url = meta_match.group("url")
+                    meta_resp = await httpx_client.get(meta_url)
+                    final_url = str(meta_resp.url)
+        except:
+            # If resolution fails (403, timeout, etc.), we stick with the naked URL version
+            pass
 
-    # Smart Purity Logic for the resolved URL
+    # Apply Purity Logic
     p = urlparse(final_url)
+    # If it's a search page, use mild cleaning (preserves keywords k, q, etc.)
     if p.path.endswith('/s') or '/search' in p.path or 'q=' in p.query or 'k=' in p.query:
         return clear_url(final_url)
     else:
+        # If it's a product or general page, strip all parameters for Total Purity
         if p.scheme and p.netloc:
             return urlunparse((p.scheme, p.netloc, p.path, '', '', ''))
         return final_url
@@ -77,8 +85,10 @@ async def unwrap_link(url: str) -> str:
 @client.event
 async def on_ready():
     await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
-    print(f'Purelink is logged in as {client.user}')
+    asyncio.create_task(update_metrics())
+    print(f'Purelink is ready and logged in as {client.user}')
 
+@process_message_time.time()
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -88,22 +98,23 @@ async def on_message(message):
     if not urls:
         return
 
+    messages.inc()
     cleaned_content = message.content
     any_cleaned = False
 
     for url in urls:
-        should_unwrap = any(domain in url for domain in UNWRAP_DOMAINS)
-        is_tracking_kw = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
+        # Check if the URL needs cleaning (unalix difference, affiliate domain, or tracking keywords)
+        standard_cleaned = clear_url(url).strip('&')
+        is_affiliate = any(domain in url for domain in UNWRAP_DOMAINS)
+        is_tracking = any(kw in url.lower() for kw in TRACKING_KEYWORDS)
         
-        if should_unwrap or is_tracking_kw:
-            print(f"[DEBUG] Processing: {url}")
+        if standard_cleaned != url.strip('&') or is_affiliate or is_tracking:
             new_url = await unwrap_link(url)
             
-            # If the link simplified or changed, we cleaned it
-            if new_url != url or should_unwrap:
+            # If the URL changed OR was an affiliate link (which we wanted to sanitize anyway)
+            if new_url != url or is_affiliate:
                 cleaned_content = cleaned_content.replace(url, new_url)
                 any_cleaned = True
-                print(f"[DEBUG] -> Success: {new_url}")
 
     if any_cleaned:
         try:
@@ -119,12 +130,18 @@ async def on_message(message):
                 allowed_mentions=discord.AllowedMentions.none()
             )
             await message.delete()
-        except Exception as e:
-            await message.reply(f"Link cleaned by Purelink:\n{cleaned_content}", mention_author=False)
-            print(f"[DEBUG] Webhook error: {e}")
+            cleaned_messages.inc()
+        except:
+            # Silent fallback to non-webhook if permissions missing
+            await message.channel.send(f"Cleaned link:\n{cleaned_content}")
 
 if __name__ == '__main__':
     load_dotenv()
     token = os.getenv('TOKEN')
-    start_http_server(int(os.getenv('METRICS_PORT', 8000)))
-    client.run(token)
+    metrics_port = int(os.getenv('METRICS_PORT', 8000))
+    
+    if not token:
+        print("Error: TOKEN not found in .env")
+    else:
+        start_http_server(metrics_port)
+        client.run(token)
