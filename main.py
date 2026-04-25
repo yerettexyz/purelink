@@ -283,11 +283,14 @@ class PurelinkBot(discord.Client):
                 log(f"NUKE: Removed banned link {url}")
                 continue
 
-            # 2. Regular cleaning
-            new_url = await self.unwrap_link(u_clean)
+            # 2. Unwrap and Clean
+            new_url = u_clean
+            if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
+                new_url = await self._resolve_chain(u_clean)
+                new_url = self.unwrap_link(new_url)
+
             if new_url != u_clean:
                 LINKS_CLEANED.inc()
-                # Replace only the first occurrence to prevent content injection
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
 
