@@ -60,7 +60,6 @@ class PurelinkBot(discord.Client):
             }
             try: self.loop.run_in_executor(None, API_PLUGIN.initialize_monitoring, metrics)
             except: pass
-            log("PLUGIN: Private Monitoring Bridge initialized.")
         self.loop.create_task(self.update_uptime())
 
     async def on_ready(self):
@@ -73,6 +72,8 @@ class PurelinkBot(discord.Client):
             await asyncio.sleep(15)
 
     def unwrap_link(self, url):
+        # STRTICT: If it's not a URL, return original
+        if not url or not str(url).startswith("http"): return url
         try:
             p = urlparse(url)
             qs = parse_qs(p.query)
@@ -92,7 +93,7 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url):
         if not self.session: return url
         try:
-            async with self.session.head(url, allow_redirects=True, timeout=5) as resp:
+            async with self.session.get(url, allow_redirects=True, timeout=5) as resp:
                 return str(resp.url)
         except:
             return url
@@ -120,7 +121,8 @@ class PurelinkBot(discord.Client):
                 new_url = await self._resolve_chain(u_clean)
                 new_url = self.unwrap_link(new_url)
 
-            if new_url != u_clean and new_url.startswith("http"):
+            # DOUBLE SHIELD: Must be a URL and not '200'
+            if new_url and str(new_url).startswith("http") and new_url != u_clean:
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
@@ -143,5 +145,5 @@ class PurelinkBot(discord.Client):
                 except: pass
 
 if __name__ == '__main__':
-    bot = PurelinkBot()
+    bot = PurelinkBot(intents=intents)
     bot.run(TOKEN)
