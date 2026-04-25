@@ -2,25 +2,31 @@ import asyncio
 import os
 import re
 import sys
+import json
 import discord
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, unquote
 from dotenv import load_dotenv
 
-# Purelink - Python 3.10 Compatibility Build
-# Replaced asyncio.timeout (Python 3.11+) with asyncio.wait_for (Python 3.10)
+# Purelink - JSON Powered Edition
+# Configuration is now decoupled from the source code.
 
 load_dotenv()
 
-UNWRAP_DOMAINS = [
-    "mavely", "joinmavely", "mavelyinfluencer.com", "amzn.to", "a.co", "bit.ly", "tinyurl.com",
-    "lordofsavings", "tdgdeals", "pricedoffers", "ojrq.net", "sjv.io", "rstyle.me",
-    "link.profitlounge.us", "howl.link", "jdoqocy.com", "sylikes.com", "bizrate.com", 
-    "pricingerrors.com", "t.co", "amazon.com", "ebay.com", "walmart.com", "trlyfree.co", "walmrt.us",
-    "tkqlhce.com", "dotomi.com", "anrdoezrs.net", "dpbolvw.net"
-]
-TRACKING_KEYWORDS = ["utm_", "fbclid", "gclid", "cjevent", "cjdata", "tag=", "linkId=", "ref="]
-PEEK_KEYS = ["return", "url", "dest", "destination", "u", "q", "redirect", "redirect_url", "murl"]
-SEARCH_KEEPERS = ['k', 'q', 'srs', 'bbn', 'rh', 'rnid', 'crid', 'low-price', 'high-price', 'sprefix']
+def load_config():
+    """Load tracking config from data.json."""
+    try:
+        with open('data.json', 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"CRITICAL: Failed to load data.json: {e}")
+        return {
+            "unwrap_domains": ["amzn.to", "bit.ly"],
+            "tracking_keywords": ["utm_", "ref="],
+            "peek_keys": ["url"],
+            "search_keepers": ["k", "q"]
+        }
+
+CONFIG = load_config()
 
 def log(msg):
     print(f"[BOT] {msg}", flush=True)
@@ -34,13 +40,12 @@ class PurelinkBot(discord.Client):
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name='for tracking links'))
 
     async def _resolve_chain(self, url: str) -> str:
-        """Internal worker for the unrolling chain."""
         current_url = url
         for hop in range(1, 10):
             # 1. Peek
             p = urlparse(current_url)
             qs = parse_qs(p.query)
-            for key in PEEK_KEYS:
+            for key in CONFIG["peek_keys"]:
                 if key in qs:
                     potential = unquote(qs[key][0])
                     if potential.startswith("http"):
@@ -48,7 +53,7 @@ class PurelinkBot(discord.Client):
                         log(f"UNWRAP: Hop {hop} (Peek) -> {current_url}")
                         continue
             
-            # 2. Curl Resolve (Stealth)
+            # 2. Curl Resolve
             cmd = ["curl", "-Ls", "--compressed", "--max-time", "8", "-k", "-A", "Mozilla/5.0", "-w", "\n%{http_code}\n%{url_effective}", current_url]
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
             stdout, _ = await proc.communicate()
@@ -78,15 +83,14 @@ class PurelinkBot(discord.Client):
                 
             if final_eff_url == current_url: break
             current_url = final_eff_url
-            if not any(d in current_url for d in UNWRAP_DOMAINS) and not any(kw in current_url for kw in TRACKING_KEYWORDS):
+            if not any(d in current_url for d in CONFIG["unwrap_domains"]) and not any(kw in current_url for kw in CONFIG["tracking_keywords"]):
                 break
         return current_url
 
     async def unwrap_link(self, url: str) -> str:
         log(f"UNWRAP: Start {url}")
         try:
-            # Use wait_for for Python 3.10 compatibility
-            final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=20.0)
+            final_url = await asyncio.wait_for(self._resolve_chain(url), timeout=22.0)
         except Exception as e:
             log(f"UNWRAP ERROR: {e}")
             final_url = url
@@ -97,12 +101,15 @@ class PurelinkBot(discord.Client):
         if "amazon" in p.netloc.lower():
             clean_path = re.sub(r'/(ref[=/].*)', '', clean_path)
             
-        if any(k in clean_path for k in ['/s', '/search']) or 'k=' in p.query:
+        is_search = any(k in clean_path for k in ['/s', '/search']) or 'k=' in p.query
+        if is_search:
             qs = parse_qs(p.query)
-            clean_qs = {k: v for k, v in qs.items() if k in SEARCH_KEEPERS or k.startswith('p_')}
+            clean_qs = {k: v for k, v in qs.items() if k in CONFIG["search_keepers"] or k.startswith('p_')}
             return urlunparse((p.scheme, p.netloc, clean_path, '', urlencode(clean_qs, doseq=True), ''))
         else:
-            return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
+            if p.scheme and p.netloc:
+                return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), '', '', ''))
+            return final_url
 
     async def on_message(self, message):
         if message.author.bot: return
@@ -115,8 +122,8 @@ class PurelinkBot(discord.Client):
 
         for url in urls:
             u_clean = url.rstrip('.,!?;:')
-            is_track = any(k in u_clean.lower() for k in TRACKING_KEYWORDS)
-            is_aff = any(d in u_clean.lower() for d in UNWRAP_DOMAINS)
+            is_track = any(k in u_clean.lower() for k in CONFIG["tracking_keywords"])
+            is_aff = any(d in u_clean.lower() for d in CONFIG["unwrap_domains"])
 
             if is_track or is_aff:
                 new_url = await self.unwrap_link(u_clean)
