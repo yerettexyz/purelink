@@ -30,6 +30,7 @@ LINKS_CLEANED = Counter('purelink_links_cleaned_total', 'Total links sanitized')
 LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
 LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total links removed (banned)')
 HOPS_TOTAL = Counter('purelink_hops_total', 'Total URL redirects resolved')
+GUILDS_COUNT = Gauge('purelink_guilds_total', 'Total number of servers')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = time.time()
 
@@ -74,6 +75,7 @@ class PurelinkBot(discord.Client):
                 'LINKS_DETECTED': LINKS_DETECTED,
                 'LINKS_NUKED': LINKS_NUKED,
                 'HOPS_TOTAL': HOPS_TOTAL,
+                'GUILDS_COUNT': GUILDS_COUNT,
                 'ERRORS_TOTAL': Counter('dummy_err', 'err'),
                 'START_TIME': START_TIME,
                 'PORT_PROM': 8000
@@ -83,8 +85,17 @@ class PurelinkBot(discord.Client):
         self.loop.create_task(self.update_uptime())
 
     async def on_ready(self):
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="for tracking links"))
-        log("STATUS: Bot is ready.")
+        GUILDS_COUNT.set(len(self.guilds))
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"tracking links in {len(self.guilds)} servers"))
+        log(f"STATUS: Bot is ready in {len(self.guilds)} servers.")
+
+    async def on_guild_join(self, guild):
+        GUILDS_COUNT.set(len(self.guilds))
+        log(f"JOINED: {guild.name} ({guild.id})")
+
+    async def on_guild_remove(self, guild):
+        GUILDS_COUNT.set(len(self.guilds))
+        log(f"LEFT: {guild.name} ({guild.id})")
 
     async def update_uptime(self):
         while not self.is_closed():
