@@ -176,6 +176,7 @@ class PurelinkBot(discord.Client):
 
         urls = re.findall(r'https?://[^\s<>"]+', message.content)
         if not urls: return
+        log(f"[DEBUG] Processing {len(urls)} URLs from {message.author.name}")
         LINKS_DETECTED.inc(len(urls))
 
         cleaned_content = message.content
@@ -184,8 +185,10 @@ class PurelinkBot(discord.Client):
         for url in urls:
             u_clean = url.rstrip('.,!?;:)]}>')
             domain = urlparse(u_clean).netloc.lower()
+            log(f"[DEBUG] Checking domain: {domain}")
             
             if any(d in domain for d in CONFIG.get("unsupported_domains", [])):
+                log(f"[DEBUG] Skipping unsupported domain: {domain}")
                 continue
 
             # 1. Resolve redirects

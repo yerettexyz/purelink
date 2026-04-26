@@ -46,12 +46,16 @@ def patched_dispatch(self, event_name, *args, **kwargs):
     if event_name == 'message':
         try:
             message = args[0]
-            if not message.author.bot and os.path.exists(IGNORE_FILE):
-                with open(IGNORE_FILE, 'r') as f: data = json.load(f)
-                id_list = [str(i) for i in data.get('ignored_users', []) + data.get('ignored_channels', [])]
-                if str(message.author.id) in id_list or str(message.channel.id) in id_list:
-                    return # Block from main.py
-        except: pass
+            if not message.author.bot:
+                print(f"[DEBUG] Dispatch saw message from {message.author.id} in {message.channel.id}", flush=True)
+                if os.path.exists(IGNORE_FILE):
+                    with open(IGNORE_FILE, 'r') as f: data = json.load(f)
+                    id_list = [str(i) for i in data.get('ignored_users', []) + data.get('ignored_channels', [])]
+                    if str(message.author.id) in id_list or str(message.channel.id) in id_list:
+                        print(f"[DEBUG] Message BLOCKED by ignore list.", flush=True)
+                        return # Block from main.py
+        except Exception as e:
+            print(f"[DEBUG] Dispatch error: {e}", flush=True)
 
     # 3. Standard Dispatch
     return original_dispatch(self, event_name, *args, **kwargs)
