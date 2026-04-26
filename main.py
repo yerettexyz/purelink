@@ -124,14 +124,12 @@ class PurelinkBot(discord.Client):
             visited = {u}
             hops = 0
             
-            ENDPOINTS = ['walmart.com', 'amazon.', 'target.com', 'bestbuy.com', 'ebay.com']
-            
             for _ in range(15): # Max 15 hops
                 if not any(curr_url.startswith(p) for p in ['http://', 'https://']):
                     return curr_url, hops
                 
-                # Check for major retailers before visiting them
-                if any(ep in curr_url.lower() for ep in ENDPOINTS):
+                # Fast-exit ONLY for banned domains
+                if any(bd in curr_url.lower() for bd in self.banned_domains):
                     return curr_url, hops
 
                 try:
