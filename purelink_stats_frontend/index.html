@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purelink | Live Stats</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #0b0e14;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #a98ef5 0%, #6b46e5 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stats-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+        .stats-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(169, 142, 245, 0.3);
+        }
+        .glow {
+            box-shadow: 0 0 30px rgba(169, 142, 245, 0.1);
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-6">
+    <!-- Ambient Background -->
+    <div class="fixed top-[-10%] right-[-10%] w-[500px] h-[500px] bg-[#a98ef5] rounded-full blur-[150px] opacity-[0.05] pointer-events-none"></div>
+    <div class="fixed bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#6b46e5] rounded-full blur-[150px] opacity-[0.05] pointer-events-none"></div>
+
+    <div class="max-w-4xl w-full z-10">
+        <!-- Header -->
+        <div class="text-center mb-12">
+            <h1 class="text-5xl font-extrabold mb-4 tracking-tight">🔗 <span class="gradient-text">Purelink</span> Status</h1>
+            <div class="flex items-center justify-center gap-2 text-gray-400">
+                <div class="w-2 h-2 rounded-full bg-green-500 pulse"></div>
+                <span id="status-text">Connecting to Node...</span>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Purity Score -->
+            <div class="stats-card p-8 rounded-3xl glow">
+                <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">Purified Links</p>
+                <h2 id="links-cleaned" class="text-5xl font-bold">--</h2>
+            </div>
+
+            <!-- Resolution Hops -->
+            <div class="stats-card p-8 rounded-3xl glow">
+                <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">Total Hops</p>
+                <h2 id="hops-total" class="text-5xl font-bold">--</h2>
+            </div>
+
+            <!-- Nuked Links -->
+            <div class="stats-card p-8 rounded-3xl glow">
+                <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">Nuked Links</p>
+                <h2 id="links-nuked" class="text-5xl font-bold">--</h2>
+            </div>
+
+             <!-- Uptime -->
+             <div class="stats-card p-8 rounded-3xl glow col-span-full md:col-span-1">
+                <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">System Uptime</p>
+                <h2 id="uptime" class="text-3xl font-bold">--</h2>
+            </div>
+
+            <!-- Health -->
+            <div class="stats-card p-8 rounded-3xl glow col-span-full md:col-span-2">
+                <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">Resolution Health</p>
+                <div class="flex items-center gap-4 mt-2">
+                    <div class="h-4 bg-gray-800 flex-grow rounded-full overflow-hidden">
+                        <div id="health-bar" class="h-full bg-gradient-to-r from-[#a98ef5] to-[#6b46e5]" style="width: 0%"></div>
+                    </div>
+                    <span id="health-percent" class="font-bold">0%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-16 text-center text-gray-500 text-sm">
+            <p>&copy; 2026 Yerette Studio. Powered by Purelink Engine v1.1.1</p>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURATION: Replace with your actual server IP/Domain
+        const API_URL = 'http://YOUR_SERVER_IP:8001/stats.json';
+
+        async function updateStats() {
+            try {
+                const response = await fetch(API_URL);
+                if (!response.ok) throw new Error('Network recovery pending...');
+                const data = await response.json();
+
+                // Update Counters
+                document.getElementById('links-cleaned').innerText = data.links_cleaned.toLocaleString();
+                document.getElementById('hops-total').innerText = data.hops_total.toLocaleString();
+                document.getElementById('links-nuked').innerText = data.links_nuked.toLocaleString();
+                
+                // Uptime Formatting
+                const hours = Math.floor(data.uptime / 3600);
+                const mins = Math.floor((data.uptime % 3600) / 60);
+                document.getElementById('uptime').innerText = `${hours}h ${mins}m`;
+
+                // Health Calculation (Success vs Error)
+                const total = data.links_cleaned + data.errors_total;
+                const health = total > 0 ? (data.links_cleaned / total) * 100 : 100;
+                document.getElementById('health-bar').style.width = `${health}%`;
+                document.getElementById('health-percent').innerText = `${Math.round(health)}%`;
+
+                document.getElementById('status-text').innerText = 'System Operational';
+                document.getElementById('status-text').classList.replace('text-gray-400', 'text-green-400');
+            } catch (err) {
+                console.error('Stats Update Error:', err);
+                document.getElementById('status-text').innerText = 'Node Offline / Reconnecting';
+                document.getElementById('status-text').classList.replace('text-green-400', 'text-red-400');
+            }
+        }
+
+        // Poll every 5 seconds
+        setInterval(updateStats, 5000);
+        updateStats(); // Initial call
+    </script>
+</body>
+</html>
