@@ -26,7 +26,7 @@ def register_commands(tree):
         embed.add_field(name="Purelink Stats", value="[Live Status Page](https://purelink-status.pages.dev)", inline=False)
         embed.add_field(name="Invite Bot", value="[Add Bot](https://yerette.xyz/purelink)", inline=False)
         embed.add_field(name="Bugs, Issues, & Feedback", value="[GitHub Issues Page](https://github.com/yerettexyz/purelink/issues)", inline=False)
-        embed.set_footer(text="Purelink v1.1.0")
+        embed.set_footer(text="Purelink v1.1.1")
         
         logo_path = "IMG_9915.webp"
         if os.path.exists(logo_path):
