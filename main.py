@@ -129,7 +129,8 @@ class PurelinkBot(discord.Client):
                 if not any(curr_url.startswith(p) for p in ['http://', 'https://']):
                     return curr_url, hops
                 
-                if any(bd in curr_url.lower() for bd in self.banned_domains):
+                # Fast-exit ONLY for banned domains
+                if any(bd in curr_url.lower() for bd in CONFIG.get("banned_domains", [])):
                     log(f"[DEBUG] Resolver: Stopped at banned domain {curr_url}")
                     return curr_url, hops
 
