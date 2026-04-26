@@ -31,6 +31,7 @@ LINKS_DETECTED = Counter('purelink_links_detected_total', 'Total links found')
 LINKS_NUKED = Counter('purelink_links_nuked_total', 'Total links removed (banned)')
 HOPS_TOTAL = Counter('purelink_hops_total', 'Total URL redirects resolved')
 GUILDS_COUNT = Gauge('purelink_guilds_total', 'Total number of servers')
+MEMBERS_COUNT = Gauge('purelink_members_total', 'Total number of members protected')
 BOT_UPTIME = Gauge('purelink_uptime_seconds', 'Bot uptime in seconds')
 START_TIME = time.time()
 
@@ -76,6 +77,7 @@ class PurelinkBot(discord.Client):
                 'LINKS_NUKED': LINKS_NUKED,
                 'HOPS_TOTAL': HOPS_TOTAL,
                 'GUILDS_COUNT': GUILDS_COUNT,
+                'MEMBERS_COUNT': MEMBERS_COUNT,
                 'ERRORS_TOTAL': Counter('dummy_err', 'err'),
                 'START_TIME': START_TIME,
                 'PORT_PROM': 8000
@@ -85,17 +87,28 @@ class PurelinkBot(discord.Client):
         self.loop.create_task(self.update_uptime())
 
     async def on_ready(self):
+        self.update_counts()
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"tracking links for {MEMBERS_COUNT._value.get()} members"))
+        log(f"STATUS: Bot is ready in {len(self.guilds)} servers with {MEMBERS_COUNT._value.get()} members.")
+
+    def update_counts(self):
         GUILDS_COUNT.set(len(self.guilds))
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"tracking links in {len(self.guilds)} servers"))
-        log(f"STATUS: Bot is ready in {len(self.guilds)} servers.")
+        total_members = sum(g.member_count or 0 for g in self.guilds)
+        MEMBERS_COUNT.set(total_members)
 
     async def on_guild_join(self, guild):
-        GUILDS_COUNT.set(len(self.guilds))
+        self.update_counts()
         log(f"JOINED: {guild.name} ({guild.id})")
 
     async def on_guild_remove(self, guild):
-        GUILDS_COUNT.set(len(self.guilds))
+        self.update_counts()
         log(f"LEFT: {guild.name} ({guild.id})")
+
+    async def on_member_join(self, member):
+        self.update_counts()
+
+    async def on_member_remove(self, member):
+        self.update_counts()
 
     async def update_uptime(self):
         while not self.is_closed():
