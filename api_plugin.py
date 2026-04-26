@@ -22,20 +22,24 @@ discord.Client.on_interaction = universal_on_interaction
 
 async def setup_plugin_system(bot):
     global COMMANDS_SYNCED
-    if COMMANDS_SYNCED: return
-    
-    if not hasattr(bot, 'tree'):
-        bot.tree = app_commands.CommandTree(bot)
-    
-    # Load commands from external file
-    slash_commands.register_commands(bot.tree)
+    # 4. Command Syncing (Smarter Sync to avoid 429)
+    if not hasattr(bot, '_commands_synced'):
+        bot._commands_synced = False
 
-    try:
-        await bot.tree.sync()
-        COMMANDS_SYNCED = True
-        print("[PLUGIN] Native Slash Commands synced successfully.")
-    except Exception as e:
-        print(f"[PLUGIN] Failed to sync commands: {e}")
+    if not bot._commands_synced:
+        try:
+            if not hasattr(bot, 'tree'):
+                bot.tree = app_commands.CommandTree(bot)
+            
+            # Load commands from external file
+            slash_commands.register_commands(bot.tree)
+
+            await bot.tree.sync()
+            bot._commands_synced = True
+            COMMANDS_SYNCED = True
+            print("[PLUGIN] Native Slash Commands synced successfully.")
+        except Exception as e:
+            print(f"[PLUGIN] Failed to sync commands: {e}")
 
 def patched_dispatch(self, event_name, *args, **kwargs):
     # 1. Setup Slash Commands on Ready
