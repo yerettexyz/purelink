@@ -192,10 +192,15 @@ class PurelinkBot(discord.Client):
                 continue
 
             # 1. Resolve redirects
+            unwraps = CONFIG.get("unwrap_domains", [])
+            log(f"[DEBUG] Processing {domain} (Unwrap rules: {len(unwraps)})")
+            
             target_url = u_clean
-            if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
+            if any(d in domain for d in unwraps) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
                 target_url = await self._resolve_chain(u_clean)
-            log(f"[DEBUG] Target: {target_url}")
+                log(f"[DEBUG] Target: {target_url}")
+            else:
+                log(f"[DEBUG] Target (SKIPPED RESOLVE): {target_url}")
             
             # 2. Strip tracking from final link
             new_url = self.unwrap_link(target_url)
