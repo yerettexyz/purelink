@@ -88,7 +88,7 @@ class PurelinkBot(discord.Client):
 
     async def on_ready(self):
         self.update_counts()
-        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"tracking links for {MEMBERS_COUNT._value.get()} members"))
+        await self.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="for tracking links"))
         log(f"STATUS: Bot is ready in {len(self.guilds)} servers with {MEMBERS_COUNT._value.get()} members.")
 
     def update_counts(self):
