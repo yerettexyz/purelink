@@ -77,14 +77,26 @@
                 <h2 id="links-nuked" class="text-5xl font-bold">--</h2>
             </div>
 
+            <!-- Total Servers -->
+            <div class="stats-card p-8 rounded-3xl glow border-[#a98ef5]/20">
+                <p class="text-[#a98ef5] text-sm font-medium uppercase tracking-widest mb-2">Total Servers</p>
+                <h2 id="guilds-total" class="text-5xl font-bold">--</h2>
+            </div>
+
+            <!-- Members Protected -->
+            <div class="stats-card p-8 rounded-3xl glow border-[#a98ef5]/20">
+                <p class="text-[#a98ef5] text-sm font-medium uppercase tracking-widest mb-2">Members Protected</p>
+                <h2 id="members-total" class="text-5xl font-bold">--</h2>
+            </div>
+
              <!-- Uptime -->
-             <div class="stats-card p-8 rounded-3xl glow col-span-full md:col-span-1">
+             <div class="stats-card p-8 rounded-3xl glow">
                 <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">System Uptime</p>
                 <h2 id="uptime" class="text-3xl font-bold">--</h2>
             </div>
 
             <!-- Health -->
-            <div class="stats-card p-8 rounded-3xl glow col-span-full md:col-span-2">
+            <div class="stats-card p-8 rounded-3xl glow col-span-full">
                 <p class="text-gray-400 text-sm font-medium uppercase tracking-widest mb-2">Resolution Health</p>
                 <div class="flex items-center gap-4 mt-2">
                     <div class="h-4 bg-gray-800 flex-grow rounded-full overflow-hidden">
@@ -115,6 +127,8 @@
                 document.getElementById('links-cleaned').innerText = data.links_cleaned.toLocaleString();
                 document.getElementById('hops-total').innerText = data.hops_total.toLocaleString();
                 document.getElementById('links-nuked').innerText = data.links_nuked.toLocaleString();
+                document.getElementById('guilds-total').innerText = (data.guilds_total || 0).toLocaleString();
+                document.getElementById('members-total').innerText = (data.members_total || 0).toLocaleString();
                 
                 // Uptime Formatting
                 const hours = Math.floor(data.uptime / 3600);

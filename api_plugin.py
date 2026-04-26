@@ -99,6 +99,8 @@ class StatsHandler(BaseHTTPRequestHandler):
                 "links_detected": get_val(self.metrics['LINKS_DETECTED']),
                 "links_nuked": get_val(self.metrics['LINKS_NUKED']),
                 "hops_total": get_val(self.metrics['HOPS_TOTAL']),
+                "guilds_total": get_val(self.metrics['GUILDS_COUNT']),
+                "members_total": get_val(self.metrics['MEMBERS_COUNT']),
                 "errors_total": get_val(self.metrics['ERRORS_TOTAL']),
                 "uptime": time.time() - self.metrics['START_TIME']
             }
@@ -122,6 +124,8 @@ def persistence_loop(metrics):
                 "links_detected": get_val(metrics['LINKS_DETECTED']),
                 "links_nuked": get_val(metrics['LINKS_NUKED']),
                 "hops_total": get_val(metrics['HOPS_TOTAL']),
+                "guilds_total": get_val(metrics['GUILDS_COUNT']),
+                "members_total": get_val(metrics['MEMBERS_COUNT']),
                 "errors_total": get_val(metrics['ERRORS_TOTAL']),
             }
             with open(STATS_FILE, 'w') as f:
