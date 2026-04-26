@@ -199,12 +199,11 @@ class PurelinkBot(discord.Client):
             # 3. Check for Banned Domains (Total Nuke)
             is_banned = any(d in target_url.lower() or d in domain for d in CONFIG.get("banned_domains", []))
 
-            # 4. Apply change if cleaned, unwrapped, or banned
+            # 4. Apply change if cleaned or unwrapped
             if is_banned:
-                cleaned_content = cleaned_content.replace(url, "", 1)
-                any_cleaned = True
-                LINKS_NUKED.inc()
-            elif new_url and new_url != u_clean:
+                continue # Skip banned domains, leave them in the original text
+            
+            if new_url and new_url != u_clean:
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
