@@ -91,7 +91,7 @@ class PurelinkBot(discord.Client):
             BOT_UPTIME.set(time.time() - START_TIME)
             await asyncio.sleep(15)
 
-    def unwrap_link(self, url):
+    def purify_url(self, url):
         if not url or not str(url).startswith("http"): return url
         try:
             p = urlparse(url)
@@ -108,6 +108,21 @@ class PurelinkBot(discord.Client):
             new_query = urlencode(clean_qs, doseq=True)
             return urlunparse((p.scheme, p.netloc, clean_path.rstrip('/'), p.params, new_query, p.fragment))
         except: return url
+
+    def unwrap_link(self, url):
+        parsed = urlparse(url)
+        q_params = parse_qs(parsed.query)
+        
+        for d in CONFIG.get("unwrap_domains", []):
+            if d in parsed.netloc.lower():
+                for k in CONFIG.get("peek_keys", []):
+                    if k in q_params:
+                        target = q_params[k][0]
+                        log(f"[DEBUG] Unwrapped '{k}': {target}")
+                        if target.startswith("http"):
+                            return self.unwrap_link(target)
+        
+        return self.purify_url(url)
 
     async def _resolve_chain(self, url):
         def _fetch(u):
