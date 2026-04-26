@@ -218,16 +218,9 @@ class PurelinkBot(discord.Client):
             new_url = self.unwrap_link(target_url)
             log(f"[DEBUG] Cleaned: {new_url}")
 
-            # 3. Check for Banned Domains
-            is_banned = any(d in target_url.lower() or d in domain for d in CONFIG.get("banned_domains", []))
-
             # 4. Apply change if cleaned or unwrapped
-            if is_banned:
-                log(f"[DEBUG] BANNED - skipping")
-                continue
-            
             if new_url and new_url != u_clean:
-                log(f"[DEBUG] Reposting cleaned link...")
+                log(f"[DEBUG] SUCCESS: Link modified. Replacing in content.")
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
