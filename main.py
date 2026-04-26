@@ -136,7 +136,7 @@ class PurelinkBot(discord.Client):
 
                 try:
                     req = urllib.request.Request(curr_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with opener.open(req, timeout=8) as response:
+                    with opener.open(req, timeout=10) as response:
                         status = getattr(response, 'status', response.getcode())
                         if status in [301, 302, 303, 307, 308]:
                             new_url = response.headers.get('Location')
