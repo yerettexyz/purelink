@@ -114,6 +114,7 @@ class PurelinkBot(discord.Client):
             import urllib.request
             import urllib.error
             from urllib.parse import urljoin
+            import socket
             
             class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -124,24 +125,28 @@ class PurelinkBot(discord.Client):
             visited = {u}
             hops = 0
             
-            for i in range(15): # Max 15 hops
+            for i in range(15):
                 if not any(curr_url.startswith(p) for p in ['http://', 'https://']):
                     return curr_url, hops
                 
-                # Fast-exit ONLY for banned domains
                 if any(bd in curr_url.lower() for bd in self.banned_domains):
-                    log(f"[DEBUG] EXIT RESOLVE: Hit banned domain {curr_url}")
+                    log(f"[DEBUG] Resolver: Stopped at banned domain {curr_url}")
                     return curr_url, hops
 
                 try:
                     req = urllib.request.Request(curr_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with opener.open(req, timeout=4) as response:
-                        if response.status in [301, 302, 303, 307, 308]:
+                    with opener.open(req, timeout=8) as response:
+                        status = getattr(response, 'status', response.getcode())
+                        if status in [301, 302, 303, 307, 308]:
                             new_url = response.headers.get('Location')
-                            if not new_url: return curr_url, hops
+                            if not new_url: 
+                                log(f"[DEBUG] Resolver: 3xx redirect but no Location header at {curr_url}")
+                                return curr_url, hops
                             if new_url.startswith('/'):
                                 new_url = urljoin(curr_url, new_url)
-                            if new_url in visited: return curr_url, hops
+                            if new_url in visited: 
+                                log(f"[DEBUG] Resolver: Redirect loop detected at {new_url}")
+                                return curr_url, hops
                             curr_url = new_url
                             visited.add(curr_url)
                             hops += 1
@@ -158,17 +163,22 @@ class PurelinkBot(discord.Client):
                         visited.add(curr_url)
                         hops += 1
                     else:
+                        log(f"[DEBUG] Resolver: HTTP Error {e.code} at {curr_url}")
                         return curr_url, hops
-                except:
+                except socket.timeout:
+                    log(f"[DEBUG] Resolver: Socket Timeout at {curr_url}")
+                    return curr_url, hops
+                except Exception as e:
+                    log(f"[DEBUG] Resolver: Unexpected error {type(e).__name__}: {e}")
                     return curr_url, hops
             return curr_url, hops
 
         try:
             res_url, hop_count = await self.loop.run_in_executor(None, _fetch, url)
-            if hop_count > 0:
-                HOPS_TOTAL.inc(hop_count)
             return res_url
-        except: return url
+        except Exception as e:
+            log(f"[DEBUG] Resolver: Executor failed: {e}")
+            return url
 
     async def on_message(self, message):
         if message.author.bot: return
