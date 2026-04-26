@@ -3613,12 +3613,12 @@
         "mavelyinfluencer.com",
         "mavelylife.com",
         "theblogcm.com",
-        "walmart.com",
-        "walmrt.us",
         "rebrandly.com",
         "rebrand.ly"
     ],
     "banned_domains": [
-        "linktr.ee"
+        "linktr.ee",
+        "walmart.com",
+        "walmrt.us"
     ]
 }
