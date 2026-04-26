@@ -3572,7 +3572,17 @@
         "linkId=",
         "fbclid",
         "cjevent",
-        "gclid"
+        "gclid",
+        "click_id",
+        "clickid",
+        "affiliate_id",
+        "aff_id",
+        "pid",
+        "aid",
+        "sid",
+        "cid",
+        "mid",
+        "merchant_id"
     ],
     "peek_keys": [
         "return",
