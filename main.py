@@ -112,15 +112,57 @@ class PurelinkBot(discord.Client):
     async def _resolve_chain(self, url):
         def _fetch(u):
             import urllib.request
-            if not any(u.startswith(p) for p in ['http://', 'https://']):
-                return u
-            req = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
-            return urllib.request.urlopen(req, timeout=5).geturl()
+            import urllib.error
+            from urllib.parse import urljoin
+            
+            class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    return None
+            
+            opener = urllib.request.build_opener(NoRedirectHandler)
+            curr_url = u
+            visited = {u}
+            hops = 0
+            
+            for _ in range(15): # Max 15 hops
+                if not any(curr_url.startswith(p) for p in ['http://', 'https://']):
+                    return curr_url, hops
+                
+                try:
+                    req = urllib.request.Request(curr_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with opener.open(req, timeout=4) as response:
+                        if response.status in [301, 302, 303, 307, 308]:
+                            new_url = response.headers.get('Location')
+                            if not new_url: return curr_url, hops
+                            if new_url.startswith('/'):
+                                new_url = urljoin(curr_url, new_url)
+                            if new_url in visited: return curr_url, hops
+                            curr_url = new_url
+                            visited.add(curr_url)
+                            hops += 1
+                        else:
+                            return curr_url, hops
+                except urllib.error.HTTPError as e:
+                    if e.code in [301, 302, 303, 307, 308]:
+                        new_url = e.headers.get('Location')
+                        if not new_url: return curr_url, hops
+                        if new_url.startswith('/'):
+                            new_url = urljoin(curr_url, new_url)
+                        if new_url in visited: return curr_url, hops
+                        curr_url = new_url
+                        visited.add(curr_url)
+                        hops += 1
+                    else:
+                        return curr_url, hops
+                except:
+                    return curr_url, hops
+            return curr_url, hops
+
         try:
-            final_url = await self.loop.run_in_executor(None, _fetch, url)
-            if final_url and final_url != url:
-                HOPS_TOTAL.inc()
-            return final_url
+            res_url, hop_count = await self.loop.run_in_executor(None, _fetch, url)
+            if hop_count > 0:
+                HOPS_TOTAL.inc(hop_count)
+            return res_url
         except: return url
 
     async def on_message(self, message):
