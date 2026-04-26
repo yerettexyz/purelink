@@ -124,10 +124,16 @@ class PurelinkBot(discord.Client):
             visited = {u}
             hops = 0
             
+            ENDPOINTS = ['walmart.com', 'amazon.', 'target.com', 'bestbuy.com', 'ebay.com']
+            
             for _ in range(15): # Max 15 hops
                 if not any(curr_url.startswith(p) for p in ['http://', 'https://']):
                     return curr_url, hops
                 
+                # Check for major retailers before visiting them
+                if any(ep in curr_url.lower() for ep in ENDPOINTS):
+                    return curr_url, hops
+
                 try:
                     req = urllib.request.Request(curr_url, headers={'User-Agent': 'Mozilla/5.0'})
                     with opener.open(req, timeout=4) as response:
