@@ -195,21 +195,27 @@ class PurelinkBot(discord.Client):
             target_url = u_clean
             if any(d in domain for d in CONFIG.get("unwrap_domains", [])) or any(kw in u_clean for kw in CONFIG.get("tracking_keywords", [])):
                 target_url = await self._resolve_chain(u_clean)
+            log(f"[DEBUG] Target: {target_url}")
             
             # 2. Strip tracking from final link
             new_url = self.unwrap_link(target_url)
+            log(f"[DEBUG] Cleaned: {new_url}")
 
-            # 3. Check for Banned Domains (Total Nuke)
+            # 3. Check for Banned Domains
             is_banned = any(d in target_url.lower() or d in domain for d in CONFIG.get("banned_domains", []))
 
             # 4. Apply change if cleaned or unwrapped
             if is_banned:
-                continue # Skip banned domains, leave them in the original text
+                log(f"[DEBUG] BANNED - skipping")
+                continue
             
             if new_url and new_url != u_clean:
+                log(f"[DEBUG] Reposting cleaned link...")
                 cleaned_content = cleaned_content.replace(url, new_url, 1)
                 any_cleaned = True
                 LINKS_CLEANED.inc()
+            else:
+                log(f"[DEBUG] No change detected.")
 
         if any_cleaned:
             # Clean up whitespace if we removed a whole link
