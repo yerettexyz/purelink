@@ -16,7 +16,7 @@ Purelink is a bot designed to detect, unwrap, and clean tracking links, extracti
 
 ---
 
-## 🛠 Self-Hosting Setup
+## Setup
 
 ### 1. Requirements
 - Python 3.8+
