@@ -5,12 +5,6 @@
 
 Purelink is a bot designed to detect, unwrap, and clean tracking links, extracting destination URLs from affiliate redirect chains.
 
-## 🛡️ Quick Start
-
-**[Add Purelink to Discord](https://yerette.xyz/purelink)**
-
-**[View Stats & Live Status](https://purelink-status.pages.dev)**
-
 ## Key Features
 - **3,500+ Tracking Domains**: Integrated blocklist for unwrapping and sanitizing ad, affiliate, and tracking domains.
 - **Mavely & Amazon Sanitization**: Logic for cleaning Mavely redirects and stripping Amazon tracking parameters.
